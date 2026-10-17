@@ -175,7 +175,8 @@ Delete it from `C:\Jellyfin Media` on the laptop. Syncthing deletes it on the Pi
 | A guest on your Wi-Fi | Connect to Syncthing on the Pi | Refused | Their device ID isn't known to the Pi |
 | A guest on your Wi-Fi | Open either Syncthing web page | Can't reach it | Both listen only on `127.0.0.1` |
 | Anyone on the internet | Reach Jellyfin directly | Can't | No router port forwarding, and Jellyfin's **remote connections are off**, so it refuses non-home addresses even if a port were ever opened |
-| Anyone on the internet | Via your Cloudflare domain | Can't | The tunnel only serves the website and risky-business; any other name gets a 404 |
+| Anyone on the internet | Via your Cloudflare domain | Can't | The tunnel only serves the website, risky-business and `chat.upendragusain.co.uk`; any other name gets a 404 |
+| Anyone on the internet | Use the watchlist at `chat.upendragusain.co.uk` | Can't | Cloudflare Access app *chat* lets in only `upendra.gusain@gmail.com` (emailed one-time code, login lasts a month), and the app checks Access's signed token too. It can't reach the media |
 | Anyone on the internet | Find your Syncthing devices | Can't | Global discovery, relays and NAT traversal are all off |
 | You, from outside the house | Watch anything | Can't, by choice | Options for later: Tailscale (recommended) or a direct subdomain with Caddy and port forwarding. The Cloudflare tunnel is ruled out, because its terms forbid video and it would put the website at risk |
 | You, administering the Pi | SSH in | Allowed | `id_rsa` private key on the laptop; its public half in the Pi's `authorized_keys`. Home network only |
@@ -227,6 +228,8 @@ If step 5 is skipped, the Pi doesn't know it has the files and downloads them al
 | Syncthing (Pi) | `/opt/syncthing/compose.yaml` (copy in [pi/syncthing](../pi/syncthing/compose.yaml)), settings in `/opt/syncthing/data` |
 | Syncthing (laptop) | Program installed by winget; settings in `%LOCALAPPDATA%\Syncthing`; started by the *Syncthing* scheduled task |
 | Ignore list | `C:\Jellyfin Media\.stignore` (copy in [laptop/syncthing](../laptop/syncthing/.stignore)) |
+| Cloudflare tunnel | Pi, `cloudflared` system service, `/etc/cloudflared/config.yml` (dated backups alongside; not in any repo) |
+| Cloudflare Access | Zero Trust team `upendragusain`, app *chat* covering `chat.upendragusain.co.uk`, policy *Only me* |
 | Web pages | Jellyfin `http://192.168.1.40:8096`; Syncthing on the laptop `http://127.0.0.1:8384` |
 
 ## Known limits

@@ -226,11 +226,11 @@ Settings live in `/opt/watchlist/data/settings.json` (example: [pi/watchlist/set
 
 ## 7. Access and security
 
-- **Address:** a new hostname on the existing Cloudflare tunnel. The tunnel runs as the `cloudflared` system service on the Pi, with its config in `/etc/cloudflared/config.yml`, not in the public risky-business repo. Choose a **neutral name**, e.g. `notes.<domain>`.
-- **Lock 1, Cloudflare Access:**
-  - an application covering the whole hostname;
-  - only `upendra.gusain@gmail.com` is allowed, logging in with Google;
-  - a login lasts 30 days.
+- **Address:** `chat.upendragusain.co.uk`, a hostname on the existing Cloudflare tunnel, routed to `http://localhost:8190`. The tunnel runs as the `cloudflared` system service on the Pi, with its config in `/etc/cloudflared/config.yml`, not in the public risky-business repo.
+- **Lock 1, Cloudflare Access** (Zero Trust team `upendragusain`, free plan):
+  - the application *chat* covers the whole hostname;
+  - its policy *Only me* allows only `upendra.gusain@gmail.com`, logging in with an emailed one-time code (no identity provider is set up);
+  - a login lasts 1 month.
   - Strangers never reach the Pi.
   - This applies only to this hostname. The website and risky-business are unchanged.
 - **Lock 2, the app checks too:** every request must carry Cloudflare's signed login token (the `Cf-Access-Jwt-Assertion` header), checked against your Cloudflare team's public keys and this application's ID. That way the app still refuses strangers if Access is ever switched off by mistake.
@@ -288,11 +288,9 @@ Settings live in `/opt/watchlist/data/settings.json` (example: [pi/watchlist/set
 
 ## 11. Still to decide
 
-1. **Hostname**, e.g. `notes.<domain>`.
-2. **Your UK subscriptions** (Netflix, Prime, Disney+, NOW, Apple TV+, …) and whether **iPlayer, ITVX and Channel 4** count.
-3. **TV alerts:** only new seasons and premieres (suggested), or every new episode too?
-4. **Keys you'll need to create:**
+1. **Your UK subscriptions** (Netflix, Prime, Disney+, NOW, Apple TV+, …) and whether **iPlayer, ITVX and Channel 4** count.
+2. **TV alerts:** only new seasons and premieres (suggested), or every new episode too?
+3. **Keys you'll need to create:**
    - an OpenAI API key, with a spending limit set;
    - a TMDb account and API read token;
-   - a Jellyfin API key (Dashboard → API Keys);
-   - Cloudflare Zero Trust switched on (free plan), to get a team name.
+   - a Jellyfin API key (Dashboard → API Keys).
