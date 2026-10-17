@@ -1,0 +1,20 @@
+# Receives C:\Jellyfin Media from the laptop into /srv/media (one-way, home network only).
+services:
+  syncthing:
+    image: syncthing/syncthing:2.1.5
+    container_name: syncthing
+    hostname: pieasypieces
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      # Web UI on the Pi only; reach it with an SSH tunnel.
+      STGUIADDRESS: 127.0.0.1:8384
+    # Host networking for LAN discovery (UDP 21027) and sync (TCP 22000).
+    network_mode: host
+    volumes:
+      - ./data:/var/syncthing
+      - /srv/media:/media
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }

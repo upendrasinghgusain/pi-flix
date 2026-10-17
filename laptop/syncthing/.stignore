@@ -1,0 +1,16 @@
+// Never sent to the Pi
+/_leftovers
+*.txt
+*.nfo
+*.url
+*.exe
+Screens
+Sample
+// Downloads still in progress
+*.part
+*.!qB
+*.!ut
+*.crdownload
+*.tmp
+(?d)Thumbs.db
+(?d)desktop.ini

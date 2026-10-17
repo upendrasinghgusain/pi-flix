@@ -1,0 +1,20 @@
+# Jellyfin media server, home network only. Movies go in /srv/media/movies.
+services:
+  jellyfin:
+    image: jellyfin/jellyfin:12.1
+    container_name: jellyfin
+    user: "1000:1000"
+    # Host networking lets the TV app discover the server automatically (UDP 7359).
+    network_mode: host
+    environment:
+      JELLYFIN_PublishedServerUrl: http://192.168.1.40:8096
+    volumes:
+      - ./config:/config
+      - ./cache:/cache
+      - /srv/media:/media:ro
+    # Leave a core free for the risky-business stacks if a video needs transcoding.
+    cpus: "3.0"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
