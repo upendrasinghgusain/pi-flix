@@ -1,6 +1,6 @@
 # Watchlist: spec
 
-Status: **agreed design, not built yet.** Written 2026-10-17. Once it's built, the "how it works now" story moves into [media-server.md](media-server.md) and this stays as the design record.
+Status: **build step 1 written and tested, not deployed yet** (code in [services/watchlist](../services/watchlist/)). Written 2026-10-17. Once it's built, the "how it works now" story moves into [media-server.md](media-server.md) and this stays as the design record.
 
 ## 1. Purpose
 

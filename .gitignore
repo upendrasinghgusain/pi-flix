@@ -13,3 +13,5 @@ TestResults/
 Thumbs.db
 desktop.ini
 .DS_Store
+services/watchlist/src/Watchlist/App_Data/
+services/watchlist/out/

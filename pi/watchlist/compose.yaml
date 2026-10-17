@@ -1,0 +1,21 @@
+# Watchlist: chat agent, list and release checker. Reached only through the Cloudflare
+# tunnel, behind Cloudflare Access. Secrets are in .env (see .env.example in the repo).
+services:
+  watchlist:
+    build: .
+    image: pi-flix/watchlist:local
+    container_name: watchlist
+    user: "1000:1000"
+    # Listens on 127.0.0.1:8190 only, so the home network can't reach it without the tunnel.
+    # Host networking also lets it reach Jellyfin at 127.0.0.1:8096.
+    network_mode: host
+    env_file: .env
+    volumes:
+      - ./data:/data
+    # Leave the rest of the Pi to Jellyfin and the website.
+    cpus: "1.0"
+    mem_limit: 512m
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }

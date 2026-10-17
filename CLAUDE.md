@@ -41,6 +41,10 @@ dotnet publish src/MediaTidy -c Release -o "$env:LOCALAPPDATA\MediaTidy\bin"
 
 It's a WinExe so it never shows a window. Pipe it to see output. It must never delete or move the originals (qBittorrent seeds them); it only hard-links. Add a test for every new naming pattern.
 
+## Watchlist
+
+The chat agent, list and release checker: spec in [docs/watchlist.md](docs/watchlist.md), code in `services/watchlist`, deployed by `services/watchlist/deploy.sh` to Pi `/opt/watchlist` (copy of its compose file in `pi/watchlist/`). Secrets are in `/opt/watchlist/.env`: never print them. It tracks and alerts only; it never searches for or fetches downloads.
+
 ## Conventions
 
 - C#, latest .NET LTS (SDK pinned in `tools/media-tidy/global.json`).

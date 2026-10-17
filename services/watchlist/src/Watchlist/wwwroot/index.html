@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#14161c">
+  <title>Watchlist</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="top">
+    <nav class="tabs" role="tablist">
+      <button role="tab" id="tab-chat" aria-selected="true" data-view="chat">Chat</button>
+      <button role="tab" id="tab-list" aria-selected="false" data-view="list">List</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="view-chat" class="view" aria-labelledby="tab-chat">
+      <div id="messages" class="messages" aria-live="polite"></div>
+      <form id="composer" class="composer" autocomplete="off">
+        <button type="button" id="mic" class="icon-btn" aria-label="Record a voice message" title="Hold to talk, or tap to start and stop">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>
+        </button>
+        <textarea id="input" rows="1" placeholder="Add a film or show…" aria-label="Message"></textarea>
+        <button type="submit" id="send" class="icon-btn primary" aria-label="Send">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.4 20.4 21 12 3.4 3.6 3.4 10l12.6 2-12.6 2z"/></svg>
+        </button>
+      </form>
+    </section>
+
+    <section id="view-list" class="view" aria-labelledby="tab-list" hidden>
+      <div class="list-tools">
+        <div class="chips" role="group" aria-label="Filter">
+          <button class="chip" data-filter="active" aria-pressed="true">All</button>
+          <button class="chip" data-filter="waiting" aria-pressed="false">Waiting</button>
+          <button class="chip" data-filter="available" aria-pressed="false">Available</button>
+          <button class="chip" data-filter="in_library" aria-pressed="false">In library</button>
+          <button class="chip" data-filter="snoozed" aria-pressed="false">Snoozed</button>
+          <button class="chip" data-filter="watched" aria-pressed="false">Watched</button>
+        </div>
+        <input id="filter-text" type="search" placeholder="Search the list" aria-label="Search the list">
+      </div>
+      <div id="cards" class="cards"></div>
+      <p id="empty" class="empty" hidden>Nothing here yet. Add something from the chat.</p>
+      <footer class="credits">
+        Film and TV data from <a href="https://www.themoviedb.org" target="_blank" rel="noopener">TMDb</a>.
+        Where-to-watch data from <a href="https://www.justwatch.com" target="_blank" rel="noopener">JustWatch</a>.
+        This product uses the TMDb API but is not endorsed or certified by TMDb.
+      </footer>
+    </section>
+  </main>
+
+  <dialog id="match-dialog">
+    <form method="dialog" class="dialog-body" id="match-form">
+      <h2>Pick the right title</h2>
+      <input id="match-query" type="search" placeholder="Search TMDb" aria-label="Search TMDb">
+      <ul id="match-results" class="match-results"></ul>
+      <div class="dialog-actions"><button value="cancel">Cancel</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="notes-dialog">
+    <form method="dialog" class="dialog-body">
+      <h2>Notes</h2>
+      <textarea id="notes-text" rows="4" placeholder="e.g. Sam recommended"></textarea>
+      <div class="dialog-actions"><button value="cancel">Cancel</button><button value="save" class="primary">Save</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="snooze-dialog">
+    <form method="dialog" class="dialog-body">
+      <h2>Snooze until</h2>
+      <input id="snooze-date" type="date">
+      <div class="dialog-actions"><button value="cancel">Cancel</button><button value="save" class="primary">Snooze</button></div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
