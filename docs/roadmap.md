@@ -74,7 +74,9 @@ These hold irreplaceable data, so do items 3–5 first. Reach them with Tailscal
 
 **Why:** finding what to watch, and knowing when it's out, takes the most time.
 
-**Idea:** a C# service reads your watchlist (an IMDb export, Trakt or Letterboxd), checks **TMDb** for UK cinema, digital and disc release dates and for **which UK streaming services have each film**, and notifies you when something changes. For example: "*Weapons* is now on Prime", or "out to rent digitally today".
+**Design:** see [watchlist.md](watchlist.md). In short:
+- **The chat app:** a web app you install to your phone, with voice, behind a Cloudflare Access login. An OpenAI agent turns rough descriptions into the right title and saves it.
+- **The release checker:** watches each saved title for UK dates, UK streaming services and your Jellyfin library, and sends push alerts when something changes. For example: "*Weapons* is now on Prime", or "out to rent today".
 
 **Scope:** it tracks and notifies only. It doesn't search for or download anything.
 
