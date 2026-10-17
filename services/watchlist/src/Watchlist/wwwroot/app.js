@@ -6,6 +6,7 @@ const dateFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short
 const CATEGORY = { flatrate: "stream", free: "free", ads: "free with ads", rent: "rent", buy: "buy" };
 const KIND = { digital: "digital", disc: "disc", tv: "on TV", aired: "first aired", cinema: "cinemas" };
 const STATUS = { waiting: "waiting", available: "available", in_library: "in library", watched: "watched", removed: "removed" };
+const DOWNLOAD = { pending: "sending to Radarr", searching: "looking for a copy", downloading: "downloading" };
 
 const $ = (id) => document.getElementById(id);
 
@@ -96,6 +97,8 @@ function toast(text, action) {
 const messages = $("messages");
 const input = $("input");
 let lastUserText = "";
+// Each opening of the app is a fresh conversation; the agent only remembers this one.
+const conversation = crypto.randomUUID();
 
 function scrollChat() {
   messages.scrollTop = messages.scrollHeight;
@@ -149,7 +152,7 @@ function showChoices(choice) {
         try {
           const result = await api("/api/choose", {
             method: "POST",
-            json: { tmdbId: option.tmdbId, mediaType: option.mediaType, addedText },
+            json: { tmdbId: option.tmdbId, mediaType: option.mediaType, addedText, conversation },
           });
           box.remove();
           bubble("assistant", result.reply);
@@ -180,7 +183,7 @@ async function send(text) {
   const pending = bubble("assistant pending", "Thinking");
   $("send").disabled = true;
   try {
-    const result = await api("/api/chat", { method: "POST", json: { text } });
+    const result = await api("/api/chat", { method: "POST", json: { text, conversation } });
     pending.remove();
     bubble("assistant", result.reply);
     showAdded(result.added);
@@ -193,14 +196,8 @@ async function send(text) {
   }
 }
 
-async function loadMessages() {
-  try {
-    const history = await api("/api/messages");
-    for (const m of history) bubble(m.role, m.text);
-    if (!history.length) bubble("assistant", "Tell me what to add, even roughly: \"that new Zach Cregger horror\", \"severance\". Or ask where something's showing.");
-  } catch (e) {
-    bubble("assistant", `Couldn't load the chat: ${e.message}`);
-  }
+function greet() {
+  bubble("assistant", "What do you want to watch? Even roughly: \"I want to watch that film where Matt Damon grows potatoes\". Films are downloaded for you. Or ask where something's showing.");
 }
 
 function autosize() {
@@ -387,7 +384,8 @@ function card(item) {
       el("h3", {}, item.title, item.year ? el("span", { class: "year" }, ` (${item.year})`) : null),
       el("div", { class: "tags" },
         el("span", { class: "pill type" }, typeName(item.mediaType)),
-        el("span", { class: `pill ${status}` }, status === "snoozed" ? `snoozed to ${fmtDate(item.snoozedUntil)}` : STATUS[status] || status)),
+        el("span", { class: `pill ${status}` }, status === "snoozed" ? `snoozed to ${fmtDate(item.snoozedUntil)}` : STATUS[status] || status),
+        DOWNLOAD[item.downloadState] ? el("span", { class: `pill download ${item.downloadState}` }, DOWNLOAD[item.downloadState]) : null),
       facts(item),
       item.notes ? el("p", { class: "note" }, item.notes) : null,
       el("p", { class: "small" },
@@ -616,6 +614,6 @@ navigator.serviceWorker?.addEventListener("message", (e) => {
   if (e.data?.url) { location.hash = new URL(e.data.url, location.href).hash; show("list"); }
 });
 
-loadMessages();
+greet();
 show(location.hash.startsWith("#item-") || location.hash === "#list" ? "list" : "chat");
 window.addEventListener("focus", () => { if (!$("view-list").hidden) loadItems(); });

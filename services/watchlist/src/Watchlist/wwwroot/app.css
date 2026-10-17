@@ -250,6 +250,8 @@ main { flex: 1; min-height: 0; min-width: 0; display: flex; }
 .pill.available { background: var(--available-bg); color: var(--available); }
 .pill.in_library { background: var(--library-bg); color: var(--library); }
 .pill.watched, .pill.removed, .pill.snoozed { background: var(--watched-bg); color: var(--watched); }
+.pill.download { background: var(--surface-2); color: var(--text); }
+.pill.download.downloading { background: var(--library-bg); color: var(--library); }
 
 .facts { margin: 6px 0 0; padding: 0; list-style: none; font-size: 14px; display: flex; flex-direction: column; gap: 3px; }
 .facts .lead { font-weight: 600; }

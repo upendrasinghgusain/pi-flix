@@ -1,6 +1,6 @@
 # Watchlist: spec
 
-Status: **build steps 1 and 2 written and tested, not deployed yet** (code in [services/watchlist](../services/watchlist/)). Written 2026-10-17. Once it's built, the "how it works now" story moves into [media-server.md](media-server.md) and this stays as the design record.
+Status: **build steps 1–3 deployed** at `chat.upendragusain.co.uk`, plus **downloading through Radarr** (2026-10-17; see [Downloading](#downloading)). Code in [services/watchlist](../services/watchlist/). Written 2026-10-17. The "how it works now" story is in [media-server.md](media-server.md); this stays as the design record.
 
 ## 1. Purpose
 
@@ -66,6 +66,18 @@ The rules:
 - **One clear match:** add it straight away and offer **Undo**.
 - **Several close matches:** show up to 4 buttons and add nothing until you tap one.
 - **No match:** say so and ask for more detail. **Never guess silently.**
+- **Saying it:** "add …", "I want to watch …", "get me …", "download …", "put … on my list" all add. Questions ("where can I watch …", "is … out yet") and ordinary chat save nothing.
+- **Each opening of the app is a new conversation:** the screen starts empty and the agent remembers only what's said since.
+
+### Downloading
+
+Every **film** on the list is downloaded, through the *arr stack on the Pi (see [media-server.md](media-server.md#the-arr-pipeline-public-domain-titles)), which uses **legal indexers only**. TV isn't downloaded yet.
+
+1. Adding a film also adds it to **Radarr** (quality profile *Watchlist*, library `/data/library/movies`) and starts a search. Saying it again for a film already on the list re-sends it if it never reached Radarr.
+2. Radarr searches through Prowlarr, picks a release, and hands it to the Pi's qBittorrent. When it's done, Radarr hard-links it into the library, which Jellyfin shows.
+3. **Radarr's webhook** tells the watchlist what happened, and the card moves along: *looking for a copy* → *downloading* → **in library**, with a push alert "Downloaded: it's in your library."
+4. **Safety nets:** if Radarr can't be reached, the film is marked *sending to Radarr* and re-sent every 5 minutes. The daily check asks Radarr about every film still in progress, in case a webhook was missed.
+5. **Wrong title** drops the old film from Radarr (with its file) and sends the right one. **Deleting a card doesn't touch Radarr**; delete the film in Radarr too if you want the file gone. Deleting a film in Radarr puts its card back to a normal release-tracking card.
 
 ### Asking
 
@@ -75,7 +87,7 @@ The rules:
 | "where can I watch The Bear" | UK services, rent and buy options right now. **Saves nothing.** |
 | "what's coming out soon" | Saved titles with a home release date (anywhere) in the next 30 days |
 | "remove dune" / "watched weapons" | Stops tracking it (after confirming which one, if unclear) |
-| "no, the other one" | Fixes the last thing it did. The agent sees the last few messages. |
+| "no, the other one" | Fixes the last thing it did. The agent sees the last few messages of this conversation. |
 
 ### The list
 
@@ -214,7 +226,7 @@ One SQLite file at `/opt/watchlist/data/watchlist.db`.
 | `items` | TMDb ID, type (film/TV), title, year, poster, status, snoozed-until date, notes, **what you typed** when adding it, added date |
 | `items.availability_json` | The last check: release dates, services and season info as found. Each check is compared with it, then replaces it. |
 | `alerts` | Per item: kind, message, created, sent. Unsent ones wait through quiet hours. |
-| `messages` | Recent chat history (the agent sees the last few) |
+| `messages` | Chat history, by conversation (one per opening of the app). The agent sees the last few of the current one; the rest is kept only for the daily limit's count |
 | `push_subscriptions` | The devices that receive alerts |
 | `meta` | The Web Push signing key (made on first start) and when the daily check last ran |
 
@@ -258,13 +270,13 @@ Settings live in `/opt/watchlist/data/settings.json` (example: [pi/watchlist/set
 | Image | Built for arm64, base image pinned to an exact version at least two weeks old |
 | On the Pi | `/opt/watchlist`: `compose.yaml`, `.env`, `data/`. Copy of `compose.yaml` in `pi/watchlist/`. |
 | Runs as | User 1000, limited to 1 CPU, so Jellyfin and the website keep theirs |
-| Network | Host networking, listening on `127.0.0.1:<port>`, so it can reach Jellyfin at `127.0.0.1:8096` |
+| Network | The *arr stack's Docker network (`arr_arr`), so it and Radarr can call each other; published on the Pi's `127.0.0.1:8190` only, for the tunnel. Jellyfin is at `host.docker.internal:8096` |
 | Backups | `data/` joins the off-Pi backups (roadmap item 5) |
 | Health | A `/health` page for the container, and errors logged to the container log |
 
 ## 9. Out of scope
 
-- **Downloading.** The app's job ends at the alert saying where a title can be watched, and this spec doesn't define a way to hand off to a downloader. MediaTidy keeps filing whatever arrives in `C:\qBittorrent`, however it got there.
+- **Downloading TV.** Films go to Radarr (see [Downloading](#downloading)); shows could go to Sonarr the same way later. MediaTidy keeps filing whatever arrives in `C:\qBittorrent` on the laptop, however it got there.
 - **Recommendations** ("what should I watch?"). Possibly later, using TMDb's recommendations for titles you marked watched.
 - **Native Android app, Telegram, Trakt sync:** possible later front ends or mirrors that talk to the same service. Not needed for the first version.
 

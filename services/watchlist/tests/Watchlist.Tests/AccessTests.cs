@@ -121,6 +121,8 @@ public sealed class LockedAppTests : IClassFixture<LockedAppTests.App>
 
     public LockedAppTests(App app) => _app = app;
 
+    public const string HookSecret = "hook-secret";
+
     public sealed class App : WebApplicationFactory<Program>
     {
         public FakeAccess Access { get; } = new();
@@ -133,6 +135,7 @@ public sealed class LockedAppTests : IClassFixture<LockedAppTests.App>
             builder.UseSetting("Access:TeamDomain", FakeAccess.Team);
             builder.UseSetting("Access:Audience", FakeAccess.Audience);
             builder.UseSetting("Access:AllowedEmail", FakeAccess.Email);
+            builder.UseSetting("Radarr:WebhookSecret", HookSecret);
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<CloudflareAccess>();
@@ -144,7 +147,7 @@ public sealed class LockedAppTests : IClassFixture<LockedAppTests.App>
     [Theory]
     [InlineData("/")]
     [InlineData("/api/items")]
-    [InlineData("/api/messages")]
+    [InlineData("/api/alerts")]
     public async Task Everything_is_refused_without_a_token(string path)
     {
         var response = await _app.CreateClient().GetAsync(path);
@@ -178,6 +181,47 @@ public sealed class LockedAppTests : IClassFixture<LockedAppTests.App>
         client.DefaultRequestHeaders.Add("Cookie", $"{CloudflareAccess.Cookie}={_app.Access.Token()}");
 
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/items")).StatusCode);
+    }
+
+    private static HttpRequestMessage Hook(string? user = Hooks.User, string? password = HookSecret, bool viaCloudflare = false)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/hooks/radarr")
+        {
+            Content = new StringContent("""{"eventType":"Test"}""", System.Text.Encoding.UTF8, "application/json"),
+        };
+        if (user is not null)
+            request.Headers.Authorization = new("Basic", Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"{user}:{password}")));
+        if (viaCloudflare)
+            request.Headers.Add("Cf-Ray", "8f00000000000000-LHR");
+        return request;
+    }
+
+    [Fact]
+    public async Task Radarrs_webhook_gets_in_with_the_secret()
+    {
+        var response = await _app.CreateClient().SendAsync(Hook());
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task The_webhook_refuses_a_missing_or_wrong_secret()
+    {
+        Assert.Equal(HttpStatusCode.Forbidden, (await _app.CreateClient().SendAsync(Hook(user: null))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _app.CreateClient().SendAsync(Hook(password: "guess"))).StatusCode);
+    }
+
+    [Fact]
+    public async Task The_webhook_refuses_anything_that_came_through_cloudflare_even_with_the_secret()
+    {
+        Assert.Equal(HttpStatusCode.Forbidden, (await _app.CreateClient().SendAsync(Hook(viaCloudflare: true))).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_cloudflare_login_does_not_open_the_webhook()
+    {
+        var client = _app.CreateClient();
+        client.DefaultRequestHeaders.Add(CloudflareAccess.Header, _app.Access.Token());
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(Hook(user: null))).StatusCode);
     }
 
     [Fact]

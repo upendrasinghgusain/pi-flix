@@ -1,6 +1,7 @@
-"""Wire Prowlarr, Radarr, Sonarr and qBittorrent together through their REST APIs.
-Runs on the Pi. Reads API keys from each config.xml and never prints them. Safe to re-run."""
-import json, re, urllib.request, urllib.error
+"""Wire Prowlarr, Radarr, Sonarr and qBittorrent together through their REST APIs, and link
+Radarr with the watchlist (/opt/watchlist). Runs on the Pi. Reads API keys from each config.xml
+and never prints them or the webhook secret. Safe to re-run."""
+import json, os, re, secrets, urllib.request, urllib.error
 
 def key(app):
     return re.search(r"<ApiKey>(\w+)</ApiKey>", open(f"/opt/arr/{app}/config.xml").read()).group(1)
@@ -86,3 +87,61 @@ for app, port in [("radarr", 7878), ("sonarr", 8989)]:
 
 call("prowlarr", "POST", "/command", {"name": "ApplicationIndexerSync"})
 print("prowlarr: sync requested")
+
+# Radarr's "Watchlist" quality profile. Internet Archive release names rarely say their quality,
+# so Radarr calls them Unknown; the built-in HD profiles would reject them all. This accepts
+# Unknown and SD to 1080p, never upgrades (no re-downloads), and Unknown is capped below.
+WANTED = {"Unknown", "SDTV", "DVD", "WEBDL-480p", "WEBRip-480p", "Bluray-480p", "Bluray-576p",
+          "HDTV-720p", "WEBDL-720p", "WEBRip-720p", "Bluray-720p",
+          "HDTV-1080p", "WEBDL-1080p", "WEBRip-1080p", "Bluray-1080p"}
+if any(p["name"] == "Watchlist" for p in call("radarr", "GET", "/qualityprofile")):
+    print("radarr: Watchlist profile already there")
+else:
+    profile = call("radarr", "GET", "/qualityprofile/schema")
+    for item in profile["items"]:
+        children = item["items"] if not item.get("quality") else [item]
+        for child in children:
+            child["allowed"] = child["quality"]["name"] in WANTED
+        item["allowed"] = any(c["allowed"] for c in children)
+        if any(c["quality"]["name"] == "Bluray-1080p" for c in children):
+            profile["cutoff"] = item["quality"]["id"] if item.get("quality") else item["id"]
+    profile.update(name="Watchlist", upgradeAllowed=False)
+    call("radarr", "POST", "/qualityprofile", profile)
+    print("radarr: added Watchlist profile")
+
+# Size limits are in MB per minute of running time. Unknown's default (100) would allow a
+# 9 GB copy of a 90-minute film; 30 caps it near 2.7 GB. Tune these in Radarr: Settings > Quality.
+for d in call("radarr", "GET", "/qualitydefinition"):
+    if d["quality"]["name"] == "Unknown" and d["maxSize"] != 30:
+        d.update(maxSize=30, preferredSize=20)
+        call("radarr", "PUT", f"/qualitydefinition/{d['id']}", d)
+        print("radarr: Unknown capped at 30 MB/min")
+
+# The watchlist: its .env gets Radarr's address, API key and a webhook secret; Radarr gets a
+# webhook that calls the watchlist on grab, import and delete.
+ENV = "/opt/watchlist/.env"
+lines = open(ENV).read().splitlines()
+values = dict(l.split("=", 1) for l in lines if "=" in l and not l.startswith("#"))
+wanted = {"Radarr__Url": "http://radarr:7878", "Radarr__ApiKey": APPS["radarr"][1],
+          "Radarr__WebhookSecret": values.get("Radarr__WebhookSecret") or secrets.token_urlsafe(32)}
+for name, value in wanted.items():
+    if values.get(name) != value:
+        lines = [l for l in lines if not l.startswith(name + "=")] + [f"{name}={value}"]
+        print(f"watchlist: set {name} in .env")
+with open(ENV, "w") as f:
+    f.write("\n".join(lines) + "\n")
+os.chmod(ENV, 0o600)
+
+hook = next((n for n in call("radarr", "GET", "/notification") if n["name"] == "Watchlist"), None)
+if hook is None:
+    hook = next(s for s in call("radarr", "GET", "/notification/schema") if s["implementation"] == "Webhook")
+hook = set_fields(hook, url="http://watchlist:8190/hooks/radarr", method=1,
+                  username="radarr", password=wanted["Radarr__WebhookSecret"])
+hook.update(name="Watchlist", onGrab=True, onDownload=True, onUpgrade=True,
+            onMovieDelete=True, onMovieFileDelete=True, onMovieFileDeleteForUpgrade=False)
+if "id" in hook:
+    call("radarr", "PUT", f"/notification/{hook['id']}?forceSave=true", hook)
+    print("radarr: updated Watchlist webhook")
+else:
+    call("radarr", "POST", "/notification?forceSave=true", hook)
+    print("radarr: added Watchlist webhook")

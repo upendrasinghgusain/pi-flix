@@ -7,6 +7,7 @@ using Watchlist.Agent;
 using Watchlist.Alerts;
 using Watchlist.Data;
 using Watchlist.Push;
+using Watchlist.Radarr;
 using Watchlist.Tmdb;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -21,6 +22,7 @@ builder.Services.Configure<PushOptions>(builder.Configuration.GetSection("Push")
 builder.Services.Configure<TmdbOptions>(builder.Configuration.GetSection("Tmdb"));
 builder.Services.Configure<OpenAIOptions>(builder.Configuration.GetSection("OpenAI"));
 builder.Services.Configure<AccessOptions>(builder.Configuration.GetSection("Access"));
+builder.Services.Configure<RadarrOptions>(builder.Configuration.GetSection("Radarr"));
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase);
 
 builder.Services.AddSingleton(TimeProvider.System);
@@ -42,6 +44,8 @@ builder.Services.AddHttpClient<IPushSender, WebPushSender>();
 builder.Services.AddTransient<CheckRunner>();
 builder.Services.AddHostedService<ReleaseChecker>();
 builder.Services.AddHttpClient<TmdbClient>();
+builder.Services.AddHttpClient<RadarrClient>();
+builder.Services.AddTransient<Downloads>();
 builder.Services.AddTransient<WatchlistService>();
 builder.Services.AddTransient<WatchlistTools>();
 builder.Services.AddSingleton<IChatModel, OpenAIChatModel>();
@@ -65,8 +69,21 @@ _ = app.Services.GetRequiredService<Database>();
 
 app.MapGet("/health", () => Results.Text("ok"));
 
+var radarrOptions = app.Services.GetRequiredService<IOptions<RadarrOptions>>().Value;
+
 app.Use(async (context, next) =>
 {
+    // Radarr's webhook comes from the *arr network, not through Cloudflare, so it has its own lock.
+    if (context.Request.Path.StartsWithSegments("/hooks"))
+    {
+        if (!Hooks.Allowed(context.Request, radarrOptions.WebhookSecret))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return;
+        }
+        await next();
+        return;
+    }
     if (accessDisabled || context.Request.Path.StartsWithSegments("/health"))
     {
         await next();
@@ -88,11 +105,17 @@ app.UseStaticFiles();
 
 var api = app.MapGroup("/api");
 
+app.MapPost("/hooks/radarr", async (RadarrEvent e, Downloads downloads) =>
+{
+    await downloads.HandleAsync(e);
+    return Results.Ok();
+});
+
 api.MapPost("/chat", async (ChatRequest request, ChatAgent agent, CancellationToken ct) =>
 {
     if (string.IsNullOrWhiteSpace(request.Text))
         return Results.BadRequest();
-    var result = await agent.HandleAsync(request.Text.Trim(), ct);
+    var result = await agent.HandleAsync(request.Text.Trim(), Conversation(request.Conversation), ct);
     return Results.Ok(new
     {
         reply = result.Reply,
@@ -112,8 +135,9 @@ api.MapPost("/choose", async (ChooseRequest request, WatchlistService watchlist,
     var reply = outcome == AddOutcome.AlreadyThere
         ? $"{Describe(item)} is already on your list."
         : $"Added {Describe(item)}.";
-    await messages.AddAsync(MessageStore.User, $"(chose {Describe(item)})");
-    await messages.AddAsync(MessageStore.Assistant, reply);
+    var conversation = Conversation(request.Conversation);
+    await messages.AddAsync(conversation, MessageStore.User, $"(chose {Describe(item)})");
+    await messages.AddAsync(conversation, MessageStore.Assistant, reply);
     return Results.Ok(new { reply, added = outcome == AddOutcome.AlreadyThere ? [] : new[] { ItemDto.From(item) } });
 });
 
@@ -128,9 +152,6 @@ api.MapPost("/transcribe", async (IFormFile audio, IOptions<OpenAIOptions> openA
     var transcription = await client.TranscribeAudioAsync(stream, name, new AudioTranscriptionOptions { Language = "en" }, ct);
     return Results.Ok(new { text = transcription.Value.Text.Trim() });
 }).DisableAntiforgery();
-
-api.MapGet("/messages", async (MessageStore messages) =>
-    (await messages.RecentAsync(50)).Select(m => new { m.Role, m.Text, m.CreatedAt }));
 
 api.MapGet("/items", async (string? status, ItemStore items) =>
     status is not null && !Statuses.All.Contains(status)
@@ -208,25 +229,30 @@ app.Run();
 
 static string Describe(Item item) => item.Year is null ? item.Title : $"{item.Title} ({item.Year})";
 
-public sealed record ChatRequest(string Text);
+// The app makes one id per opening; anything else starts a conversation of its own.
+static string Conversation(string? id) =>
+    id is { Length: > 0 and <= 64 } && id.All(c => char.IsAsciiLetterOrDigit(c) || c == '-') ? id : Guid.NewGuid().ToString();
+
+public sealed record ChatRequest(string Text, string? Conversation = null);
 
 public sealed record PushKeys(string P256dh, string Auth);
 
 public sealed record PushSubscriptionRequest(string Endpoint, PushKeys? Keys);
 
-public sealed record ChooseRequest(int TmdbId, string MediaType, string? AddedText = null);
+public sealed record ChooseRequest(int TmdbId, string MediaType, string? AddedText = null, string? Conversation = null);
 
 public sealed record ItemPatch(string? Status, string? Notes, DateOnly? SnoozedUntil, bool ClearSnooze = false);
 
 public sealed record ItemDto(
     long Id, int TmdbId, string MediaType, string Title, int? Year, string? PosterPath, string? Overview,
     string Status, DateOnly? SnoozedUntil, string? Notes, string? AddedText, DateTimeOffset AddedAt,
-    DateTimeOffset? LastCheckedAt, JsonElement? Availability)
+    DateTimeOffset? LastCheckedAt, JsonElement? Availability, string? DownloadState)
 {
     public static ItemDto From(Item i) => new(
         i.Id, i.TmdbId, i.MediaType, i.Title, i.Year, i.PosterPath, i.Overview, i.Status, i.SnoozedUntil,
         i.Notes, i.AddedText, i.AddedAt, i.LastCheckedAt,
-        i.AvailabilityJson is null ? null : JsonDocument.Parse(i.AvailabilityJson).RootElement.Clone());
+        i.AvailabilityJson is null ? null : JsonDocument.Parse(i.AvailabilityJson).RootElement.Clone(),
+        i.DownloadState);
 }
 
 public partial class Program;

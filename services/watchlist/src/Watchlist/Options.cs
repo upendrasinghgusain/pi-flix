@@ -26,6 +26,26 @@ public sealed class OpenAIOptions
     public string TranscribeModel { get; set; } = "";
 }
 
+/// <summary>Radarr, which downloads the films on the list. Off until Url and ApiKey are set.</summary>
+public sealed class RadarrOptions
+{
+    /// <summary>e.g. http://radarr:7878 on the Pi's *arr network.</summary>
+    public string Url { get; set; } = "";
+
+    public string ApiKey { get; set; } = "";
+
+    /// <summary>Password Radarr's webhook sends (user name "radarr"). Empty turns the webhook off.</summary>
+    public string WebhookSecret { get; set; } = "";
+
+    /// <summary>Radarr quality profile for new films, by name.</summary>
+    public string QualityProfile { get; set; } = "Watchlist";
+
+    /// <summary>Radarr's library folder for films.</summary>
+    public string RootFolder { get; set; } = "/data/library/movies";
+
+    public bool IsConfigured => Url != "" && ApiKey != "";
+}
+
 /// <summary>Cloudflare Access, which sits in front of the whole hostname.</summary>
 public sealed class AccessOptions
 {

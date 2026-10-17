@@ -2,6 +2,7 @@ using System.Globalization;
 using Microsoft.Extensions.Options;
 using Watchlist.Data;
 using Watchlist.Push;
+using Watchlist.Radarr;
 
 namespace Watchlist.Alerts;
 
@@ -112,7 +113,10 @@ public sealed class CheckRunner(
     }
 }
 
-/// <summary>Wakes every few minutes: runs the daily check when it's due, then delivers alerts.</summary>
+/// <summary>
+/// Wakes every few minutes: re-sends films Radarr didn't get, runs the daily check when it's due
+/// (with a catch-up on downloads in case a webhook was missed), then delivers alerts.
+/// </summary>
 public sealed class ReleaseChecker(IServiceScopeFactory scopes, TimeProvider time, ILogger<ReleaseChecker> log) : BackgroundService
 {
     public static readonly TimeSpan Tick = TimeSpan.FromMinutes(5);
@@ -126,8 +130,13 @@ public sealed class ReleaseChecker(IServiceScopeFactory scopes, TimeProvider tim
             {
                 using var scope = scopes.CreateScope();
                 var runner = scope.ServiceProvider.GetRequiredService<CheckRunner>();
+                var downloads = scope.ServiceProvider.GetRequiredService<Downloads>();
+                await downloads.RetryPendingAsync(stoppingToken);
                 if (await runner.IsCheckDueAsync())
+                {
                     await runner.RunChecksAsync(stoppingToken);
+                    await downloads.ReconcileAsync(stoppingToken);
+                }
                 await runner.DeliverAsync(stoppingToken);
             }
             catch (Exception ex) when (!stoppingToken.IsCancellationRequested)

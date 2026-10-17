@@ -18,6 +18,21 @@ public static class Statuses
     public static bool IsTracked(string status) => status is Waiting or Available;
 }
 
+/// <summary>
+/// Where a film is in Radarr. Null: not sent (TV, or Radarr is off). Imported films also move
+/// to the in_library status.
+/// </summary>
+public static class DownloadStates
+{
+    /// <summary>Radarr couldn't be reached; sent again on the next tick.</summary>
+    public const string Pending = "pending";
+    public const string Searching = "searching";
+    public const string Downloading = "downloading";
+    public const string Imported = "imported";
+
+    public static bool IsInProgress(string? state) => state is Searching or Downloading;
+}
+
 public sealed class Item
 {
     public long Id { get; set; }
@@ -35,6 +50,8 @@ public sealed class Item
     public DateTimeOffset UpdatedAt { get; set; }
     public DateTimeOffset? LastCheckedAt { get; set; }
     public string? AvailabilityJson { get; set; }
+    public string? DownloadState { get; set; }
+    public int? RadarrId { get; set; }
 }
 
 public enum AddOutcome { Added, Revived, AlreadyThere }
@@ -111,7 +128,8 @@ public sealed class ItemStore(Database database, TimeProvider time)
         await db.ExecuteAsync("""
             UPDATE items SET tmdb_id = @TmdbId, media_type = @MediaType, title = @Title, year = @Year,
                              poster_path = @PosterPath, overview = @Overview, status = 'waiting',
-                             availability_json = NULL, last_checked_at = NULL, updated_at = @now
+                             availability_json = NULL, last_checked_at = NULL,
+                             download_state = NULL, radarr_id = NULL, updated_at = @now
             WHERE id = @id
             """, new { id, title.TmdbId, title.MediaType, title.Title, title.Year, title.PosterPath, title.Overview, now = time.GetUtcNow() });
         return true;
@@ -136,6 +154,22 @@ public sealed class ItemStore(Database database, TimeProvider time)
         using var db = database.Open();
         await db.ExecuteAsync("UPDATE items SET snoozed_until = @until, updated_at = @now WHERE id = @id",
             new { id, until, now = time.GetUtcNow() });
+    }
+
+    /// <summary>Records where the film is in Radarr. Null clears it.</summary>
+    public async Task SetDownloadAsync(long id, string? state, int? radarrId)
+    {
+        using var db = database.Open();
+        await db.ExecuteAsync("UPDATE items SET download_state = @state, radarr_id = @radarrId, updated_at = @now WHERE id = @id",
+            new { id, state, radarrId, now = time.GetUtcNow() });
+    }
+
+    /// <summary>Items with any of these download states, oldest first.</summary>
+    public async Task<IReadOnlyList<Item>> WithDownloadStateAsync(params string[] states)
+    {
+        using var db = database.Open();
+        return (await db.QueryAsync<Item>(
+            "SELECT * FROM items WHERE download_state IN @states AND status <> 'removed' ORDER BY id", new { states })).AsList();
     }
 
     /// <summary>Records a release check, and moves between waiting and available when the result says so.</summary>

@@ -44,12 +44,12 @@ It's a WinExe so it never shows a window. Pipe it to see output. It must never d
 
 ## Watchlist
 
-The chat agent, list and release checker: spec in [docs/watchlist.md](docs/watchlist.md), code in `services/watchlist`, deployed by `services/watchlist/deploy.sh` to Pi `/opt/watchlist` (copy of its compose file in `pi/watchlist/`). Secrets are in `/opt/watchlist/.env`: never print them. It tracks and alerts only; it never searches for or fetches downloads.
+The chat agent, list and release checker: spec in [docs/watchlist.md](docs/watchlist.md), code in `services/watchlist`, deployed by `services/watchlist/deploy.sh` to Pi `/opt/watchlist` (copy of its compose file in `pi/watchlist/`). Secrets are in `/opt/watchlist/.env`: never print them. It hands every film on the list to Radarr (the *arr stack) to download; it never searches indexers itself. It sits on the *arr Docker network (`arr_arr`), so start `/opt/arr` first.
 
 ## Conventions
 
 - C#, latest .NET LTS (SDK pinned in `tools/media-tidy/global.json`).
 - Pin exact versions of container images and tools. Choose releases at least two weeks old.
-- MediaTidy's scope is filing finished downloads. The watchlist tracks and alerts only.
+- MediaTidy's scope is filing finished downloads. The watchlist tracks, alerts, and hands films to Radarr.
 - The *arr stack (Pi `/opt/arr`, copy in `pi/arr/`) searches and fetches, with **legal indexers only** (the Internet Archive). Never add, configure or tune indexers for pirated content, and keep its folders (`/srv/data`) apart from `/srv/media`.
 - The risky-business repo is **public**. Keep media details out of it.

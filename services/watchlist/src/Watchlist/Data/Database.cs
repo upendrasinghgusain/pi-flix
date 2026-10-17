@@ -83,6 +83,19 @@ public sealed class Database
                 value TEXT NOT NULL
             );
             """);
+
+        // Added after the first deploy.
+        AddColumn(db, "items", "download_state", "TEXT");
+        AddColumn(db, "items", "radarr_id", "INTEGER");
+        AddColumn(db, "messages", "conversation", "TEXT");
+        db.Execute("CREATE INDEX IF NOT EXISTS messages_conversation ON messages (conversation, id);");
+    }
+
+    private static void AddColumn(SqliteConnection db, string table, string column, string type)
+    {
+        var columns = db.Query<string>($"SELECT name FROM pragma_table_info('{table}')");
+        if (!columns.Contains(column))
+            db.Execute($"ALTER TABLE {table} ADD COLUMN {column} {type}");
     }
 
     private sealed class DateTimeOffsetHandler : SqlMapper.TypeHandler<DateTimeOffset>

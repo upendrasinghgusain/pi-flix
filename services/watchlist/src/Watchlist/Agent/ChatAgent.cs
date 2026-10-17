@@ -41,7 +41,8 @@ public sealed class ChatAgent(
     public const int MaxToolCalls = 6;
     private const int HistoryMessages = 8;
 
-    public async Task<ChatResult> HandleAsync(string text, CancellationToken ct)
+    /// <param name="conversationId">One per opening of the app; the agent only sees this conversation's history.</param>
+    public async Task<ChatResult> HandleAsync(string text, string conversationId, CancellationToken ct)
     {
         var effects = new TurnEffects();
         if (!model.IsConfigured)
@@ -51,10 +52,10 @@ public sealed class ChatAgent(
             return new ChatResult($"That's {options.Value.DailyMessageLimit} messages today, the daily limit. Use the list for now; the chat is back tomorrow.", effects);
 
         var conversation = new List<ChatMessage> { new SystemChatMessage(SystemPrompt(watchlist.Today)) };
-        foreach (var m in await messages.RecentAsync(HistoryMessages))
+        foreach (var m in await messages.RecentAsync(conversationId, HistoryMessages))
             conversation.Add(m.Role == MessageStore.User ? new UserChatMessage(m.Text) : new AssistantChatMessage(m.Text));
         conversation.Add(new UserChatMessage(text));
-        await messages.AddAsync(MessageStore.User, text);
+        await messages.AddAsync(conversationId, MessageStore.User, text);
 
         var chatOptions = new ChatCompletionOptions();
         foreach (var tool in WatchlistTools.Definitions)
@@ -86,7 +87,7 @@ public sealed class ChatAgent(
 
         if (reply.Length == 0)
             reply = effects.Choices.Count > 0 ? effects.ChoiceQuestion ?? "Which one?" : "Done.";
-        await messages.AddAsync(MessageStore.Assistant, reply);
+        await messages.AddAsync(conversationId, MessageStore.Assistant, reply);
         return new ChatResult(reply, effects);
     }
 
@@ -94,6 +95,10 @@ public sealed class ChatAgent(
         You look after one person's watchlist of films and TV shows. They live in the UK. Today is {today:dddd d MMMM yyyy}.
 
         Work out what they want: add something, remove it, mark it watched, see the list, or ask where something can be watched or when it's out.
+        They may also just chat; only change the list when they ask.
+        - Adding: "add ...", "I want to watch ...", "get me ...", "download ...", "put ... on my list" all mean add it.
+        - Asking "where can I watch ...", "is ... out yet", "what's ... about" saves nothing.
+        - Films on the list are downloaded automatically and appear in their library. add_item says how that's going; mention it briefly, e.g. "Radarr is looking for a copy".
 
         Finding the right title:
         - They often describe a title vaguely. You may use your own knowledge to guess it, but confirm every guess with search_titles, or search_person and person_credits for descriptions involving people. Never add a title that hasn't come back from a search.

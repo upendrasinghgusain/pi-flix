@@ -149,10 +149,10 @@ public sealed class ItemStoreTests : IDisposable
         // 22:30 UTC on 17 Oct is 23:30 in London (BST): still the 17th.
         // 23:30 UTC is 00:30 on the 18th, so only the second message counts as today.
         _world.Time.SetUtcNow(new DateTimeOffset(2026, 10, 17, 22, 30, 0, TimeSpan.Zero));
-        await _world.Messages.AddAsync(MessageStore.User, "yesterday");
+        await _world.Messages.AddAsync("c1", MessageStore.User, "yesterday");
         _world.Time.SetUtcNow(new DateTimeOffset(2026, 10, 17, 23, 30, 0, TimeSpan.Zero));
-        await _world.Messages.AddAsync(MessageStore.User, "today");
-        await _world.Messages.AddAsync(MessageStore.Assistant, "reply");
+        await _world.Messages.AddAsync("c1", MessageStore.User, "today");
+        await _world.Messages.AddAsync("c1", MessageStore.Assistant, "reply");
 
         Assert.Equal(1, await _world.Messages.CountUserMessagesSinceAsync(_world.Watchlist.StartOfToday));
     }

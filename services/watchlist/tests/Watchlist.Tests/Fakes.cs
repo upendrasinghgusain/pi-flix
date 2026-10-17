@@ -1,9 +1,12 @@
 using System.Net;
 using System.Text;
+using System.Text.Json.Nodes;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Watchlist.Alerts;
 using Watchlist.Data;
+using Watchlist.Radarr;
 using Watchlist.Tmdb;
 
 namespace Watchlist.Tests;
@@ -47,6 +50,72 @@ public sealed class FakeTmdb : HttpMessageHandler
         new(new HttpClient(this) { BaseAddress = new Uri("https://api.themoviedb.org/3/") }, Options.Create(new TmdbOptions()));
 }
 
+/// <summary>
+/// A small in-memory Radarr: films added through the API, a queue, and files that tests can
+/// "finish". Records every request. Down = every call fails, like a stopped container.
+/// </summary>
+public sealed class FakeRadarr : HttpMessageHandler
+{
+    public sealed class Film
+    {
+        public int Id { get; init; }
+        public int TmdbId { get; init; }
+        public bool HasFile { get; set; }
+        public bool InQueue { get; set; }
+        public JsonObject Added { get; init; } = [];
+    }
+
+    public Dictionary<int, Film> Films { get; } = [];
+    public List<string> Requests { get; } = [];
+    public bool Down { get; set; }
+    private int _nextId = 1;
+
+    public Film Has(int tmdbId, bool hasFile = false)
+    {
+        var film = new Film { Id = _nextId++, TmdbId = tmdbId, HasFile = hasFile };
+        Films[film.Id] = film;
+        return film;
+    }
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var path = request.RequestUri!.PathAndQuery.Replace("/api/v3/", "");
+        Requests.Add($"{request.Method} {path}");
+        if (Down)
+            throw new HttpRequestException("Connection refused");
+
+        var query = System.Web.HttpUtility.ParseQueryString(request.RequestUri.Query);
+        var segments = request.RequestUri.AbsolutePath.Replace("/api/v3/", "").Split('/');
+        return (request.Method.Method, segments) switch
+        {
+            ("GET", ["movie"]) => Json(new JsonArray(Films.Values.Where(f => f.TmdbId == int.Parse(query["tmdbId"]!)).Select(Node).ToArray())),
+            ("GET", ["movie", "lookup", "tmdb"]) => Json(new JsonObject { ["tmdbId"] = int.Parse(query["tmdbId"]!), ["title"] = "Looked up" }),
+            ("GET", ["movie", var id]) => Films.TryGetValue(int.Parse(id), out var f) ? Json(Node(f)) : new HttpResponseMessage(HttpStatusCode.NotFound),
+            ("GET", ["qualityprofile"]) => Json(JsonNode.Parse("""[{"id": 1, "name": "Any"}, {"id": 7, "name": "Watchlist"}]""")!),
+            ("GET", ["queue", "details"]) => Json(new JsonArray(Films.Values.Where(f => f.Id == int.Parse(query["movieId"]!) && f.InQueue).Select(_ => (JsonNode)new JsonObject()).ToArray())),
+            ("POST", ["movie"]) => Json(Node(Add((JsonObject)JsonNode.Parse(await request.Content!.ReadAsStringAsync(cancellationToken))!))),
+            ("POST", ["command"]) => Json(new JsonObject { ["id"] = 1 }),
+            ("DELETE", ["movie", var id]) => Films.Remove(int.Parse(id)) ? new HttpResponseMessage(HttpStatusCode.OK) : new HttpResponseMessage(HttpStatusCode.NotFound),
+            _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+        };
+    }
+
+    private Film Add(JsonObject body)
+    {
+        var film = new Film { Id = _nextId++, TmdbId = (int)body["tmdbId"]!, Added = body };
+        Films[film.Id] = film;
+        return film;
+    }
+
+    private static JsonNode Node(Film f) => new JsonObject { ["id"] = f.Id, ["tmdbId"] = f.TmdbId, ["hasFile"] = f.HasFile };
+
+    private static HttpResponseMessage Json(JsonNode node) =>
+        new(HttpStatusCode.OK) { Content = new StringContent(node.ToJsonString(), Encoding.UTF8, "application/json") };
+
+    public RadarrClient Client(bool configured = true) =>
+        new(new HttpClient(this), Options.Create(configured ? new RadarrOptions { Url = "http://radarr:7878", ApiKey = "test-key" } : new RadarrOptions()));
+}
+
 /// <summary>A fresh database file per test, plus the services built on it.</summary>
 public sealed class TestWorld : IDisposable
 {
@@ -61,9 +130,12 @@ public sealed class TestWorld : IDisposable
     public PushStore Pushes { get; }
     public MetaStore Meta { get; }
     public AlertOptions AlertOptions { get; } = new() { MyServices = ["Netflix", "Apple TV Plus"] };
+    public FakeRadarr Radarr { get; } = new();
+    public Downloads Downloads { get; }
     public WatchlistService Watchlist { get; }
 
-    public TestWorld()
+    /// <param name="radarr">Whether Radarr is set up; off by default, as when only the release checker is wanted.</param>
+    public TestWorld(bool radarr = false)
     {
         Directory.CreateDirectory(_dir);
         Database = new Database(Path.Combine(_dir, "watchlist.db"));
@@ -73,7 +145,8 @@ public sealed class TestWorld : IDisposable
         Alerts = new AlertStore(Database, Time);
         Pushes = new PushStore(Database, Time);
         Meta = new MetaStore(Database);
-        Watchlist = new WatchlistService(Items, Alerts, Tmdb.Client(), Time, Options.Create(new WatchlistOptions()), new FixedOptions<AlertOptions>(AlertOptions));
+        Downloads = new Downloads(Radarr.Client(configured: radarr), Items, Alerts, NullLogger<Downloads>.Instance);
+        Watchlist = new WatchlistService(Items, Alerts, Tmdb.Client(), Downloads, Time, Options.Create(new WatchlistOptions()), new FixedOptions<AlertOptions>(AlertOptions));
     }
 
     public void Dispose()

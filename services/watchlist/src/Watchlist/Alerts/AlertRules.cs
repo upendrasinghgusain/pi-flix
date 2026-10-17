@@ -39,6 +39,7 @@ public static class AlertKinds
     public const string OnService = "on_service";
     public const string LeftService = "left_service";
     public const string NewSeason = "new_season";
+    public const string Downloaded = "downloaded";
 }
 
 public sealed record Alert(string Kind, string Text);

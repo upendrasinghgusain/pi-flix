@@ -3,6 +3,7 @@
 FROM mcr.microsoft.com/dotnet/aspnet:10.0.12-noble-chiseled-extra
 WORKDIR /app
 COPY app/ ./
-ENV ASPNETCORE_URLS=http://127.0.0.1:8190 \
+# All interfaces inside the container; compose publishes it on the Pi's 127.0.0.1 only.
+ENV ASPNETCORE_URLS=http://+:8190 \
     Watchlist__DataDir=/data
 ENTRYPOINT ["dotnet", "Watchlist.dll"]

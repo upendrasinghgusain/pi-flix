@@ -196,9 +196,19 @@ public sealed class WatchlistTools(WatchlistService watchlist, ItemStore items, 
             item.Title,
             item.Year,
             item.Status,
+            download = Download(item),
             availability = ForModel(availability),
         };
     }
+
+    private static string? Download(Item item) => item.DownloadState switch
+    {
+        DownloadStates.Searching => "sent to Radarr, which is looking for a copy",
+        DownloadStates.Downloading => "downloading",
+        DownloadStates.Imported => "already downloaded and in their library",
+        DownloadStates.Pending => "couldn't reach Radarr just now; it will be retried automatically",
+        _ => item.MediaType == MediaTypes.Tv ? "TV isn't downloaded automatically yet" : null,
+    };
 
     private async Task<object> ListItems(JsonObject args)
     {
@@ -211,6 +221,7 @@ public sealed class WatchlistTools(WatchlistService watchlist, ItemStore items, 
             i.Year,
             media_type = i.MediaType,
             i.Status,
+            download = Download(i),
         }).ToList();
     }
 

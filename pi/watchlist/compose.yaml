@@ -1,14 +1,19 @@
 # Watchlist: chat agent, list and release checker. Reached only through the Cloudflare
 # tunnel, behind Cloudflare Access. Secrets are in .env (see .env.example in the repo).
+# Start the *arr stack (/opt/arr) first: this joins its network.
 services:
   watchlist:
     build: .
     image: pi-flix/watchlist:local
     container_name: watchlist
     user: "1000:1000"
-    # Listens on 127.0.0.1:8190 only, so the home network can't reach it without the tunnel.
-    # Host networking also lets it reach Jellyfin at 127.0.0.1:8096.
-    network_mode: host
+    # On the *arr network, so it can call Radarr (http://radarr:7878) and Radarr's webhook can call
+    # it (http://watchlist:8190/hooks/radarr). Published on the Pi's 127.0.0.1 only, for the
+    # Cloudflare tunnel, so the home network can't reach it.
+    networks: [arr]
+    ports: ["127.0.0.1:8190:8190"]
+    # Jellyfin listens on the Pi itself: host.docker.internal:8096.
+    extra_hosts: ["host.docker.internal:host-gateway"]
     env_file: .env
     volumes:
       - ./data:/data
@@ -19,3 +24,8 @@ services:
     logging:
       driver: json-file
       options: { max-size: 10m, max-file: "3" }
+
+networks:
+  arr:
+    external: true
+    name: arr_arr

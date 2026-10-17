@@ -60,7 +60,7 @@ public sealed class ChatAgentTests : IDisposable
             ScriptedModel.Call(("add_item", """{"tmdb_id":1078605,"media_type":"movie"}""")),
             ScriptedModel.Say("Added Weapons (2025). It's out digitally in the United States."));
 
-        var result = await Agent(model).HandleAsync("that new zach cregger horror", default);
+        var result = await Agent(model).HandleAsync("that new zach cregger horror", "c1", default);
 
         Assert.Equal("Added Weapons (2025). It's out digitally in the United States.", result.Reply);
         var added = Assert.Single(result.Effects.Added);
@@ -85,7 +85,7 @@ public sealed class ChatAgentTests : IDisposable
                 """)),
             ScriptedModel.Say("Which Weapons?"));
 
-        var result = await Agent(model).HandleAsync("weapons", default);
+        var result = await Agent(model).HandleAsync("weapons", "c1", default);
 
         Assert.Empty(result.Effects.Added);
         Assert.Equal("Which Weapons?", result.Effects.ChoiceQuestion);
@@ -103,7 +103,7 @@ public sealed class ChatAgentTests : IDisposable
             ScriptedModel.Call(search, search, search),
             ScriptedModel.Say("I couldn't find it."));
 
-        var result = await Agent(model).HandleAsync("something obscure", default);
+        var result = await Agent(model).HandleAsync("something obscure", "c1", default);
 
         Assert.Equal("I couldn't find it.", result.Reply);
         Assert.Equal(3, model.Calls.Count);
@@ -118,7 +118,7 @@ public sealed class ChatAgentTests : IDisposable
             ScriptedModel.Call(("add_item", """{"tmdb_id":42,"media_type":"movie"}""")),   // TMDb returns 404
             ScriptedModel.Say("Sorry, I couldn't find that one."));
 
-        var result = await Agent(model).HandleAsync("add 42", default);
+        var result = await Agent(model).HandleAsync("add 42", "c1", default);
 
         Assert.Equal("Sorry, I couldn't find that one.", result.Reply);
         Assert.Contains("error", model.Calls[1].OfType<ToolChatMessage>().Single().Content[0].Text);
@@ -133,7 +133,7 @@ public sealed class ChatAgentTests : IDisposable
             ScriptedModel.Call(("remove_item", $$"""{"item_id":{{item.Id}}}""")),
             ScriptedModel.Say("Removed Dune (2021)."));
 
-        await Agent(model).HandleAsync("remove dune", default);
+        await Agent(model).HandleAsync("remove dune", "c1", default);
 
         Assert.Equal(Statuses.Removed, (await _world.Items.GetAsync(item.Id))!.Status);
     }
@@ -141,27 +141,57 @@ public sealed class ChatAgentTests : IDisposable
     [Fact]
     public async Task History_is_kept_and_sent_with_the_next_message()
     {
-        await Agent(new ScriptedModel(ScriptedModel.Say("Added Dune (2021)."))).HandleAsync("add dune", default);
+        await Agent(new ScriptedModel(ScriptedModel.Say("Added Dune (2021)."))).HandleAsync("add dune", "c1", default);
         var model = new ScriptedModel(ScriptedModel.Say("Swapped it."));
 
-        await Agent(model).HandleAsync("no, the other one", default);
+        await Agent(model).HandleAsync("no, the other one", "c1", default);
 
         var sent = model.Calls[0];
         Assert.IsType<SystemChatMessage>(sent[0]);
         Assert.Equal("add dune", ((UserChatMessage)sent[1]).Content[0].Text);
         Assert.Equal("Added Dune (2021).", ((AssistantChatMessage)sent[2]).Content[0].Text);
         Assert.Equal("no, the other one", ((UserChatMessage)sent[3]).Content[0].Text);
-        Assert.Equal(4, (await _world.Messages.RecentAsync(10)).Count);
+        Assert.Equal(4, (await _world.Messages.RecentAsync("c1", 10)).Count);
+    }
+
+    [Fact]
+    public async Task A_new_conversation_starts_clean()
+    {
+        await Agent(new ScriptedModel(ScriptedModel.Say("Added Dune (2021)."))).HandleAsync("add dune", "yesterday", default);
+        var model = new ScriptedModel(ScriptedModel.Say("Hello."));
+
+        await Agent(model).HandleAsync("hi", "today", default);
+
+        var sent = model.Calls[0];
+        Assert.Equal(2, sent.Count);   // the system prompt and "hi", nothing from the other conversation
+        Assert.Equal("hi", ((UserChatMessage)sent[1]).Content[0].Text);
+    }
+
+    [Fact]
+    public async Task Adding_a_film_reports_that_radarr_is_looking()
+    {
+        using var world = new TestWorld(radarr: true);
+        world.Tmdb.On("movie/1078605", Samples.WeaponsMovie);
+        var model = new ScriptedModel(
+            ScriptedModel.Call(("add_item", """{"tmdb_id":1078605,"media_type":"movie"}""")),
+            ScriptedModel.Say("Added Weapons (2025); Radarr is looking for a copy."));
+        var agent = new ChatAgent(model, new WatchlistTools(world.Watchlist, world.Items, world.Tmdb.Client()), world.Messages,
+            world.Watchlist, Options.Create(new WatchlistOptions()), NullLogger<ChatAgent>.Instance);
+
+        await agent.HandleAsync("I want to watch Weapons", "c1", default);
+
+        var toolResult = model.Calls[1].OfType<ToolChatMessage>().Single().Content[0].Text;
+        Assert.Contains("looking for a copy", toolResult);
     }
 
     [Fact]
     public async Task Daily_limit_stops_calling_the_model()
     {
-        await _world.Messages.AddAsync(MessageStore.User, "one");
-        await _world.Messages.AddAsync(MessageStore.User, "two");
+        await _world.Messages.AddAsync("old", MessageStore.User, "one");
+        await _world.Messages.AddAsync("old", MessageStore.User, "two");
         var model = new ScriptedModel();
 
-        var result = await Agent(model, dailyLimit: 2).HandleAsync("three", default);
+        var result = await Agent(model, dailyLimit: 2).HandleAsync("three", "c1", default);
 
         Assert.Contains("daily limit", result.Reply);
         Assert.Empty(model.Calls);
