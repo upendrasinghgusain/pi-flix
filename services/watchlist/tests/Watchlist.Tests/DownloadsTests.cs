@@ -157,6 +157,24 @@ public sealed class DownloadsTests : IDisposable
     }
 
     [Fact]
+    public async Task The_daily_catch_up_searches_again_for_films_still_not_found()
+    {
+        await AddWeapons();
+        var film = _world.Radarr.Films.Values.Single();
+        _world.Radarr.Requests.Clear();
+
+        await _world.Downloads.ReconcileAsync(default);
+
+        Assert.Contains("POST command", _world.Radarr.Requests);
+
+        // A film that's downloading is left alone.
+        film.InQueue = true;
+        _world.Radarr.Requests.Clear();
+        await _world.Downloads.ReconcileAsync(default);
+        Assert.DoesNotContain("POST command", _world.Radarr.Requests);
+    }
+
+    [Fact]
     public async Task The_daily_catch_up_notices_downloads_and_films_deleted_in_radarr()
     {
         var (item, _, _) = await AddWeapons();

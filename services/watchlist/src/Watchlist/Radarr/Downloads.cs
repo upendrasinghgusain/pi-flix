@@ -139,7 +139,11 @@ public sealed class Downloads(RadarrClient radarr, ItemStore items, AlertStore a
             await SendAsync(item, ct);
     }
 
-    /// <summary>Asks Radarr about every film still in progress, in case a webhook was missed.</summary>
+    /// <summary>
+    /// Asks Radarr about every film still in progress, in case a webhook was missed. A film Radarr
+    /// is still looking for gets a fresh search: with RSS off (the Internet Archive's listing is
+    /// too slow), nothing else retries a search that failed or found nothing.
+    /// </summary>
     public async Task ReconcileAsync(CancellationToken ct)
     {
         if (!IsOn)
@@ -153,11 +157,16 @@ public sealed class Downloads(RadarrClient radarr, ItemStore items, AlertStore a
                     await items.SetDownloadAsync(item.Id, null, null);
                 else if (movie.HasFile)
                     await ImportedAsync(item, movie.Id, alert: true);
+                else if (await radarr.IsDownloadingAsync(movie.Id, ct))
+                {
+                    if (item.DownloadState != DownloadStates.Downloading)
+                        await items.SetDownloadAsync(item.Id, DownloadStates.Downloading, movie.Id);
+                }
                 else
                 {
-                    var state = await radarr.IsDownloadingAsync(movie.Id, ct) ? DownloadStates.Downloading : DownloadStates.Searching;
-                    if (state != item.DownloadState)
-                        await items.SetDownloadAsync(item.Id, state, movie.Id);
+                    await radarr.SearchAsync(movie.Id, ct);
+                    if (item.DownloadState != DownloadStates.Searching)
+                        await items.SetDownloadAsync(item.Id, DownloadStates.Searching, movie.Id);
                 }
             }
             catch (HttpRequestException ex)
