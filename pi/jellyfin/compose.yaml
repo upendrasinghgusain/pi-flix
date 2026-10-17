@@ -12,6 +12,8 @@ services:
       - ./config:/config
       - ./cache:/cache
       - /srv/media:/media:ro
+      # What Radarr and Sonarr import (pi/arr): legal, public-domain titles.
+      - /srv/data/library:/library:ro
     # Leave a core free for the risky-business stacks if a video needs transcoding.
     cpus: "3.0"
     restart: unless-stopped

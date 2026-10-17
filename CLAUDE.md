@@ -23,6 +23,7 @@ Home media server on the Raspberry Pi that also hosts risky-business. Read [docs
 | Syncthing 2.1.5 (receive-only) | Pi `/opt/syncthing` (settings in `data/`) | `pi/syncthing/compose.yaml` |
 | Syncthing 2.1.5 (send-only) | Laptop, winget package; *Syncthing* scheduled task at logon; settings in `%LOCALAPPDATA%\Syncthing` | — |
 | Ignore list | `C:\Jellyfin Media\.stignore` (Syncthing writes it) | `laptop/syncthing/.stignore` |
+| Prowlarr, Radarr, Sonarr, qBittorrent | Pi `/opt/arr` (settings in one folder per app; web pages on `127.0.0.1` only); data in `/srv/data` | `pi/arr/compose.yaml`, `pi/arr/setup.py` |
 | MediaTidy | `%LOCALAPPDATA%\MediaTidy\bin`, run by qBittorrent "on torrent finished" with `--apply "%F"` | `tools/media-tidy` |
 
 The deployed files are the truth. When changing one, update the copy here as well, and commit.
@@ -49,5 +50,6 @@ The chat agent, list and release checker: spec in [docs/watchlist.md](docs/watch
 
 - C#, latest .NET LTS (SDK pinned in `tools/media-tidy/global.json`).
 - Pin exact versions of container images and tools. Choose releases at least two weeks old.
-- MediaTidy's scope is filing finished downloads. Tools that search for or fetch downloads are out of scope.
+- MediaTidy's scope is filing finished downloads. The watchlist tracks and alerts only.
+- The *arr stack (Pi `/opt/arr`, copy in `pi/arr/`) searches and fetches, with **legal indexers only** (the Internet Archive). Never add, configure or tune indexers for pirated content, and keep its folders (`/srv/data`) apart from `/srv/media`.
 - The risky-business repo is **public**. Keep media details out of it.

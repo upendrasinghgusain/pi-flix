@@ -174,6 +174,7 @@ Delete it from `C:\Jellyfin Media` on the laptop. Syncthing deletes it on the Pi
 | A guest on your Wi-Fi with no Jellyfin account | Use Jellyfin | Sees the server's name and the login page only | Wi-Fi lets them reach it; the Jellyfin login stops them |
 | A guest on your Wi-Fi | Connect to Syncthing on the Pi | Refused | Their device ID isn't known to the Pi |
 | A guest on your Wi-Fi | Open either Syncthing web page | Can't reach it | Both listen only on `127.0.0.1` |
+| A guest on your Wi-Fi | Open Prowlarr, Radarr, Sonarr or the Pi's qBittorrent | Can't reach them | All listen only on `127.0.0.1`; only qBittorrent's peer port 6881 is open, to the home network |
 | Anyone on the internet | Reach Jellyfin directly | Can't | No router port forwarding, and Jellyfin's **remote connections are off**, so it refuses non-home addresses even if a port were ever opened |
 | Anyone on the internet | Via your Cloudflare domain | Can't | The tunnel only serves the website, risky-business and `chat.upendragusain.co.uk`; any other name gets a 404 |
 | Anyone on the internet | Use the watchlist at `chat.upendragusain.co.uk` | Can't | Cloudflare Access app *chat* lets in only `upendra.gusain@gmail.com` (emailed one-time code, login lasts a month), and the app checks Access's signed token too. It can't reach the media |
@@ -228,9 +229,56 @@ If step 5 is skipped, the Pi doesn't know it has the files and downloads them al
 | Syncthing (Pi) | `/opt/syncthing/compose.yaml` (copy in [pi/syncthing](../pi/syncthing/compose.yaml)), settings in `/opt/syncthing/data` |
 | Syncthing (laptop) | Program installed by winget; settings in `%LOCALAPPDATA%\Syncthing`; started by the *Syncthing* scheduled task |
 | Ignore list | `C:\Jellyfin Media\.stignore` (copy in [laptop/syncthing](../laptop/syncthing/.stignore)) |
+| *arr stack | Pi, `/opt/arr/compose.yaml` (copy in [pi/arr](../pi/arr/compose.yaml)), settings in `/opt/arr/{prowlarr,radarr,sonarr,qbittorrent}`; downloads in `/srv/data/torrents`, library in `/srv/data/library` |
 | Cloudflare tunnel | Pi, `cloudflared` system service, `/etc/cloudflared/config.yml` (dated backups alongside; not in any repo) |
 | Cloudflare Access | Zero Trust team `upendragusain`, app *chat* covering `chat.upendragusain.co.uk`, policy *Only me* |
 | Web pages | Jellyfin `http://192.168.1.40:8096`; Syncthing on the laptop `http://127.0.0.1:8384` |
+
+## The *arr pipeline (public-domain titles)
+
+Set up 2026-10-17 to learn how Radarr and Sonarr work, end to end, with **legal indexers only**. It's separate from everything above: its own qBittorrent, its own folders, and nothing touches `/srv/media`, the laptop or MediaTidy.
+
+```mermaid
+flowchart LR
+    IA[(Internet Archive<br/>torrents)]
+    PR[Prowlarr<br/>indexer list]
+    RA[Radarr / Sonarr<br/>wanted list + rules]
+    QB[qBittorrent<br/>container]
+    T[/srv/data/torrents/]
+    L[/srv/data/library/]
+    JF[Jellyfin<br/>/library]
+    PR -- "search API (Torznab)" --> IA
+    PR -- "syncs its indexers" --> RA
+    RA -- "searches via" --> PR
+    RA -- "magnet + category" --> QB --> T
+    T -- "hard link + rename" --> L --> JF
+```
+
+1. **You add a title** in Radarr (films) or Sonarr (TV) and pick a quality profile.
+2. **Radarr searches** through Prowlarr, which asks the Internet Archive. Every result's name is parsed (title, year, resolution, source) and checked against the profile, the size limits and the blocklist.
+3. **The best release goes to qBittorrent** with the category `radarr` or `sonarr`.
+4. **When it finishes, Radarr hard-links the file** into `/srv/data/library/movies/Title (Year)/`, renamed. The torrent keeps seeding from the same data, using no extra space.
+5. **Jellyfin** sees it in the `/library` folder.
+
+- **Indexers:** only the Internet Archive, set up in Prowlarr, which copies it to Radarr and Sonarr. Studio films aren't on legal indexers, so this pipeline won't find your watchlist titles; that's expected.
+- **Quality profiles:** use **HD-720p** or **HD-1080p**, not *Any*. With *Any*, Radarr ranks a 59 GB 4K remux first and lets trailers through.
+- **Internet Archive quirk:** an item holds several formats (`.mp4`, `.ogv`, `.mp3`, thumbnails). Radarr may import the `.ogv` rather than the better `.mp4`; check the file in Radarr and use **Manual Import** if so.
+- **Wiring:** [pi/arr/setup.py](../pi/arr/setup.py) sets up the root folders, renaming, the download client, the indexer and the Prowlarr links through the apps' APIs. It's safe to re-run.
+- **qBittorrent** skips its password for requests from the stack's Docker network (`172.20.0.0/16`), so the apps need no password for it. Its web page and the three apps listen on the Pi only.
+- **Logins:** the first time you open Radarr, Sonarr or Prowlarr, it asks you to choose a login; set *Authentication required* to *Disabled for local addresses*, and create your own username and password.
+
+To open the web pages from the laptop, tunnel through SSH, then browse to `http://localhost:<port>`:
+
+```powershell
+& "C:\Program Files\Git\usr\bin\ssh.exe" -N -L 9696:127.0.0.1:9696 -L 7878:127.0.0.1:7878 -L 8989:127.0.0.1:8989 -L 8085:127.0.0.1:8085 upendra@192.168.1.40
+```
+
+| App | Port |
+| --- | --- |
+| Prowlarr | 9696 |
+| Radarr | 7878 |
+| Sonarr | 8989 |
+| qBittorrent | 8085 |
 
 ## Known limits
 
