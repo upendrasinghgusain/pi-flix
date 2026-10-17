@@ -461,8 +461,9 @@ async function remove(item) {
 async function checkNow(item) {
   toast(`Checking ${label(item)}…`);
   try {
-    replaceItem(await api(`/api/items/${item.id}/check`, { method: "POST" }));
-    toast("Up to date");
+    const result = await api(`/api/items/${item.id}/check`, { method: "POST" });
+    replaceItem(result.item);
+    toast(result.alerts.length ? result.alerts.join(" · ") : "Up to date, nothing new");
   } catch (e) { toast(e.message); }
 }
 
@@ -538,9 +539,82 @@ $("match-form").addEventListener("submit", (e) => {
   if (e.submitter?.value !== "cancel") { e.preventDefault(); runMatchSearch(); }
 });
 
+// ---------- Alerts (Web Push) ----------
+
+const bell = $("bell");
+const pushSupported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+
+function setBell(on) {
+  bell.setAttribute("aria-pressed", String(on));
+  bell.setAttribute("aria-label", on ? "Alerts are on" : "Turn on alerts");
+  bell.title = on ? "Alerts are on" : "Turn on alerts";
+}
+
+function keyBytes(base64url) {
+  const b64 = base64url.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(base64url.length / 4) * 4, "=");
+  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+}
+
+async function currentSubscription() {
+  const registration = await navigator.serviceWorker.ready;
+  return registration.pushManager.getSubscription();
+}
+
+async function turnAlertsOn() {
+  if (await Notification.requestPermission() !== "granted") {
+    toast("Notifications are blocked. Allow them in the browser's site settings.");
+    return;
+  }
+  const { publicKey } = await api("/api/push/key");
+  const registration = await navigator.serviceWorker.ready;
+  let subscription = await registration.pushManager.getSubscription();
+  if (!subscription) {
+    subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(publicKey) });
+  }
+  await api("/api/push/subscribe", { method: "POST", json: subscription.toJSON() });
+  setBell(true);
+  const result = await api("/api/push/test", { method: "POST" });
+  toast(result.sent ? "Alerts are on. A test alert is on its way." : "Alerts are on, but the test didn't arrive.");
+}
+
+async function turnAlertsOff() {
+  const subscription = await currentSubscription();
+  if (subscription) {
+    await api("/api/push/unsubscribe", { method: "POST", json: { endpoint: subscription.endpoint } });
+    await subscription.unsubscribe();
+  }
+  setBell(false);
+  toast("Alerts are off on this device.");
+}
+
+bell.addEventListener("click", async () => {
+  if (!pushSupported) {
+    toast("This browser can't receive alerts. On a phone, install the app first.");
+    return;
+  }
+  try {
+    if (bell.getAttribute("aria-pressed") === "true") {
+      toast("Alerts are on for this device.", { label: "Turn off", run: () => turnAlertsOff().catch((e) => toast(e.message)) });
+    } else {
+      await turnAlertsOn();
+    }
+  } catch (e) {
+    toast(e.message);
+  }
+});
+
 // ---------- Start ----------
 
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+  if (pushSupported && Notification.permission === "granted") {
+    currentSubscription().then((s) => setBell(Boolean(s))).catch(() => {});
+  }
+}
+// Tapping an alert while the app is open moves to that title.
+navigator.serviceWorker?.addEventListener("message", (e) => {
+  if (e.data?.url) { location.hash = new URL(e.data.url, location.href).hash; show("list"); }
+});
 
 loadMessages();
 show(location.hash.startsWith("#item-") || location.hash === "#list" ? "list" : "chat");

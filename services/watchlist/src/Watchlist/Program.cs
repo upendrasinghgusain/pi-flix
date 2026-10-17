@@ -4,12 +4,20 @@ using OpenAI.Audio;
 using Watchlist;
 using Watchlist.Access;
 using Watchlist.Agent;
+using Watchlist.Alerts;
 using Watchlist.Data;
+using Watchlist.Push;
 using Watchlist.Tmdb;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Personal settings (your services, quiet hours) live next to the database, editable on the Pi.
+var dataDir = builder.Configuration["Watchlist:DataDir"] ?? new WatchlistOptions().DataDir;
+builder.Configuration.AddJsonFile(Path.GetFullPath(Path.Combine(dataDir, "settings.json")), optional: true, reloadOnChange: true);
+
 builder.Services.Configure<WatchlistOptions>(builder.Configuration.GetSection("Watchlist"));
+builder.Services.Configure<AlertOptions>(builder.Configuration.GetSection("Alerts"));
+builder.Services.Configure<PushOptions>(builder.Configuration.GetSection("Push"));
 builder.Services.Configure<TmdbOptions>(builder.Configuration.GetSection("Tmdb"));
 builder.Services.Configure<OpenAIOptions>(builder.Configuration.GetSection("OpenAI"));
 builder.Services.Configure<AccessOptions>(builder.Configuration.GetSection("Access"));
@@ -26,6 +34,13 @@ builder.Services.AddSingleton(sp =>
 });
 builder.Services.AddSingleton<ItemStore>();
 builder.Services.AddSingleton<MessageStore>();
+builder.Services.AddSingleton<AlertStore>();
+builder.Services.AddSingleton<PushStore>();
+builder.Services.AddSingleton<MetaStore>();
+builder.Services.AddSingleton(sp => VapidKeys.LoadOrCreateAsync(sp.GetRequiredService<MetaStore>()).GetAwaiter().GetResult());
+builder.Services.AddHttpClient<IPushSender, WebPushSender>();
+builder.Services.AddTransient<CheckRunner>();
+builder.Services.AddHostedService<ReleaseChecker>();
 builder.Services.AddHttpClient<TmdbClient>();
 builder.Services.AddTransient<WatchlistService>();
 builder.Services.AddTransient<WatchlistTools>();
@@ -154,7 +169,37 @@ api.MapPut("/items/{id:long}/match", async (long id, ChooseRequest request, Watc
 });
 
 api.MapPost("/items/{id:long}/check", async (long id, WatchlistService watchlist, CancellationToken ct) =>
-    await watchlist.CheckAsync(id, ct) is { } item ? Results.Ok(ItemDto.From(item)) : Results.NotFound());
+    await watchlist.CheckAsync(id, ct) is { } result
+        ? Results.Ok(new { item = ItemDto.From(result.Item), alerts = result.Alerts.Select(a => a.Text) })
+        : Results.NotFound());
+
+api.MapGet("/alerts", async (AlertStore alerts) =>
+    (await alerts.RecentAsync(50)).Select(a => new { a.ItemId, a.Kind, a.Text, a.CreatedAt, a.SentAt }));
+
+api.MapGet("/push/key", (VapidKeys keys) => Results.Ok(new { publicKey = keys.PublicKey }));
+
+api.MapPost("/push/subscribe", async (PushSubscriptionRequest request, PushStore pushes) =>
+{
+    if (request.Keys is null || !Uri.TryCreate(request.Endpoint, UriKind.Absolute, out var endpoint) || endpoint.Scheme != "https")
+        return Results.BadRequest();
+    await pushes.SaveAsync(request.Endpoint, request.Keys.P256dh, request.Keys.Auth);
+    return Results.Ok();
+});
+
+api.MapPost("/push/unsubscribe", async (PushSubscriptionRequest request, PushStore pushes) =>
+{
+    await pushes.DeleteAsync(request.Endpoint);
+    return Results.Ok();
+});
+
+api.MapPost("/push/test", async (PushStore pushes, IPushSender sender, CancellationToken ct) =>
+{
+    var devices = await pushes.AllAsync();
+    var results = new List<PushResult>();
+    foreach (var device in devices)
+        results.Add(await sender.SendAsync(device, new { title = "Watchlist", body = "Alerts are on.", tag = "test", url = "./#list" }, ct));
+    return Results.Ok(new { devices = devices.Count, sent = results.Count(r => r == PushResult.Sent) });
+});
 
 api.MapGet("/search", async (string q, TmdbClient tmdb, CancellationToken ct) =>
     string.IsNullOrWhiteSpace(q) ? Results.BadRequest() : Results.Ok((await tmdb.SearchTitlesAsync(q, ct: ct)).Take(10)));
@@ -164,6 +209,10 @@ app.Run();
 static string Describe(Item item) => item.Year is null ? item.Title : $"{item.Title} ({item.Year})";
 
 public sealed record ChatRequest(string Text);
+
+public sealed record PushKeys(string P256dh, string Auth);
+
+public sealed record PushSubscriptionRequest(string Endpoint, PushKeys? Keys);
 
 public sealed record ChooseRequest(int TmdbId, string MediaType, string? AddedText = null);
 

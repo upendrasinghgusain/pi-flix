@@ -11,10 +11,15 @@
 </head>
 <body>
   <header class="top">
-    <nav class="tabs" role="tablist">
-      <button role="tab" id="tab-chat" aria-selected="true" data-view="chat">Chat</button>
-      <button role="tab" id="tab-list" aria-selected="false" data-view="list">List</button>
-    </nav>
+    <div class="top-row">
+      <nav class="tabs" role="tablist">
+        <button role="tab" id="tab-chat" aria-selected="true" data-view="chat">Chat</button>
+        <button role="tab" id="tab-list" aria-selected="false" data-view="list">List</button>
+      </nav>
+      <button type="button" id="bell" class="icon-btn" aria-label="Turn on alerts" aria-pressed="false" title="Alerts">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 0 0-5.5-6.84V3.5a1.5 1.5 0 0 0-3 0v.66A7 7 0 0 0 5 11v5l-2 2v1h18v-1l-2-2Z"/></svg>
+      </button>
+    </div>
   </header>
 
   <main>

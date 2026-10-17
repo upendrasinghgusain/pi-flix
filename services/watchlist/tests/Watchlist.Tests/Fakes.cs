@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
+using Watchlist.Alerts;
 using Watchlist.Data;
 using Watchlist.Tmdb;
 
@@ -10,12 +11,19 @@ namespace Watchlist.Tests;
 /// <summary>Answers TMDb requests from canned JSON, matched by path prefix. Records what was asked.</summary>
 public sealed class FakeTmdb : HttpMessageHandler
 {
-    private readonly Dictionary<string, string> _responses = [];
+    private readonly Dictionary<string, string?> _responses = [];
     public List<string> Requests { get; } = [];
 
     public FakeTmdb On(string pathPrefix, string json)
     {
         _responses[pathPrefix] = json;
+        return this;
+    }
+
+    /// <summary>Makes requests under this path fail with a server error.</summary>
+    public FakeTmdb Fail(string pathPrefix)
+    {
+        _responses[pathPrefix] = null;
         return this;
     }
 
@@ -25,11 +33,14 @@ public sealed class FakeTmdb : HttpMessageHandler
         Requests.Add(path);
         var match = _responses.Where(r => path.StartsWith(r.Key, StringComparison.Ordinal))
             .OrderByDescending(r => r.Key.Length)
-            .Select(r => r.Value)
+            .Select(r => (Found: true, r.Value))
             .FirstOrDefault();
-        return Task.FromResult(match is null
-            ? new HttpResponseMessage(HttpStatusCode.NotFound)
-            : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(match, Encoding.UTF8, "application/json") });
+        return Task.FromResult(match switch
+        {
+            { Found: false } => new HttpResponseMessage(HttpStatusCode.NotFound),
+            { Value: null } => new HttpResponseMessage(HttpStatusCode.InternalServerError),
+            _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(match.Value, Encoding.UTF8, "application/json") },
+        });
     }
 
     public TmdbClient Client() =>
@@ -46,6 +57,10 @@ public sealed class TestWorld : IDisposable
     public Database Database { get; }
     public ItemStore Items { get; }
     public MessageStore Messages { get; }
+    public AlertStore Alerts { get; }
+    public PushStore Pushes { get; }
+    public MetaStore Meta { get; }
+    public AlertOptions AlertOptions { get; } = new() { MyServices = ["Netflix", "Apple TV Plus"] };
     public WatchlistService Watchlist { get; }
 
     public TestWorld()
@@ -55,7 +70,10 @@ public sealed class TestWorld : IDisposable
         Database.Migrate();
         Items = new ItemStore(Database, Time);
         Messages = new MessageStore(Database, Time);
-        Watchlist = new WatchlistService(Items, Tmdb.Client(), Time, Options.Create(new WatchlistOptions()));
+        Alerts = new AlertStore(Database, Time);
+        Pushes = new PushStore(Database, Time);
+        Meta = new MetaStore(Database);
+        Watchlist = new WatchlistService(Items, Alerts, Tmdb.Client(), Time, Options.Create(new WatchlistOptions()), new FixedOptions<AlertOptions>(AlertOptions));
     }
 
     public void Dispose()
@@ -63,6 +81,14 @@ public sealed class TestWorld : IDisposable
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         try { Directory.Delete(_dir, recursive: true); } catch (IOException) { }
     }
+}
+
+/// <summary>Options that never change, for code that reads IOptionsMonitor.</summary>
+public sealed class FixedOptions<T>(T value) : IOptionsMonitor<T>
+{
+    public T CurrentValue => value;
+    public T Get(string? name) => value;
+    public IDisposable? OnChange(Action<T, string?> listener) => null;
 }
 
 public static class Samples

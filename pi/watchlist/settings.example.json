@@ -1,0 +1,9 @@
+{
+  "Alerts": {
+    "MyServices": ["Netflix", "Amazon Prime Video", "Disney Plus"],
+    "FreeServicesCount": true,
+    "CheckAt": "06:00",
+    "QuietFrom": "22:00",
+    "QuietUntil": "08:00"
+  }
+}

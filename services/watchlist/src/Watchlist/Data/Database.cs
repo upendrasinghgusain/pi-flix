@@ -59,6 +59,29 @@ public sealed class Database
                 text       TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS alerts (
+                id         INTEGER PRIMARY KEY,
+                item_id    INTEGER NOT NULL REFERENCES items (id) ON DELETE CASCADE,
+                kind       TEXT NOT NULL,
+                text       TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                sent_at    TEXT
+            );
+            CREATE INDEX IF NOT EXISTS alerts_pending ON alerts (sent_at);
+
+            CREATE TABLE IF NOT EXISTS push_subscriptions (
+                id         INTEGER PRIMARY KEY,
+                endpoint   TEXT NOT NULL UNIQUE,
+                p256dh     TEXT NOT NULL,
+                auth       TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS meta (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             """);
     }
 

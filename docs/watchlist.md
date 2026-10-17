@@ -1,6 +1,6 @@
 # Watchlist: spec
 
-Status: **build step 1 written and tested, not deployed yet** (code in [services/watchlist](../services/watchlist/)). Written 2026-10-17. Once it's built, the "how it works now" story moves into [media-server.md](media-server.md) and this stays as the design record.
+Status: **build steps 1 and 2 written and tested, not deployed yet** (code in [services/watchlist](../services/watchlist/)). Written 2026-10-17. Once it's built, the "how it works now" story moves into [media-server.md](media-server.md) and this stays as the design record.
 
 ## 1. Purpose
 
@@ -145,8 +145,9 @@ Alerts arrive as phone notifications. Tapping one opens that title's card on the
 
 ### When
 
-- **Once a day**, early morning.
-- **Straight after adding**, so the first answer already says where it's showing.
+- **Once a day**, at 06:00, or at the first chance after it if the Pi was off. The app wakes every 5 minutes to see whether the check is due and to send waiting alerts.
+- **Straight after adding**, so the first answer already says where it's showing. That first check sends no alerts, because the chat reply has just said it all. Fixing a wrong title works the same way.
+- **"Check now"** on a card runs the same check as the daily one, alerts included.
 - Titles that left tracking (see below) aren't checked again.
 
 ### Alerts: only on changes
@@ -164,7 +165,12 @@ Each check is saved. An alert fires only when the result is **different from the
 | New season | "🆕 *Severance* season 3 starts 14 Jan" |
 | In your library | "✅ *Weapons* is on the TV now" |
 
-- **Quiet hours:** alerts found overnight are held until 08:00.
+- **Quiet hours:** alerts found overnight are held until 08:00, so the 06:00 check's alerts arrive at 08:00.
+- **One notification per title:** that title's alerts from one check arrive together.
+- **"Out at home" is sent once per title**, ever. When it fires, it already lists the UK options, so a separate "to rent or buy" alert isn't sent with it.
+- **Snoozed titles** are still checked, so their cards stay up to date, but they send no alerts.
+- **Delivery:** if the push service is down, alerts wait and are retried. Devices that have uninstalled the app are forgotten. With no devices at all, alerts are marked sent so they don't pile up.
+- **Turning alerts on:** the 🔔 button in the app's header asks for permission and sends a test alert. On a phone, install the app first.
 - **Weekly digest**, on Sundays: what's coming out in the next few weeks. It can be switched off.
 
 ### What the checker records
@@ -206,16 +212,17 @@ One SQLite file at `/opt/watchlist/data/watchlist.db`.
 | Table | Holds |
 | --- | --- |
 | `items` | TMDb ID, type (film/TV), title, year, poster, status, snoozed-until date, notes, **what you typed** when adding it, added date |
-| `checks` | Per item: when checked, plus release dates, services and season info as found |
-| `alerts` | Per item: kind, message, created, sent |
+| `items.availability_json` | The last check: release dates, services and season info as found. Each check is compared with it, then replaces it. |
+| `alerts` | Per item: kind, message, created, sent. Unsent ones wait through quiet hours. |
 | `messages` | Recent chat history (the agent sees the last few) |
 | `push_subscriptions` | The devices that receive alerts |
+| `meta` | The Web Push signing key (made on first start) and when the daily check last ran |
 
-Settings live in a config file next to it:
-- your subscriptions (by TMDb provider ID);
-- whether free services count;
-- quiet hours;
-- the digest day.
+Settings live in `/opt/watchlist/data/settings.json` (example: [pi/watchlist/settings.example.json](../pi/watchlist/settings.example.json)), and changes apply without a restart:
+- `MyServices`: your UK subscriptions, by name as TMDb spells them, e.g. "Amazon Prime Video", "Disney Plus". A name matches any provider that starts with it, so "Netflix" also covers "Netflix Standard with Ads";
+- `FreeServicesCount`: whether free services count;
+- `CheckAt`: when the daily check runs (06:00);
+- `QuietFrom` / `QuietUntil`: quiet hours (22:00 to 08:00).
 
 ## 7. Access and security
 
@@ -236,8 +243,10 @@ Settings live in a config file next to it:
   - the OpenAI key;
   - the TMDb read token;
   - the Jellyfin API key;
-  - the Web Push (VAPID) keys;
-  - the Cloudflare team name and application ID.
+  - the Cloudflare team name and application ID;
+  - the app's own address, which Web Push sends as the sender.
+
+  The Web Push signing key is made by the app on first start and kept in the database.
 - **Credit:** TMDb's terms ask apps to credit TMDb, and the streaming data comes from **JustWatch**, which must be credited too. Both go in the app's footer.
 
 ## 8. Deployment
