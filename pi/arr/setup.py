@@ -109,13 +109,45 @@ else:
     call("radarr", "POST", "/qualityprofile", profile)
     print("radarr: added Watchlist profile")
 
-# Size limits are in MB per minute of running time. Unknown's default (100) would allow a
-# 9 GB copy of a 90-minute film; 30 caps it near 2.7 GB. Tune these in Radarr: Settings > Quality.
+# Custom formats score each release; the Watchlist profile rejects anything scoring below 0.
+# Radarr picks by quality first, then by score, then by size closest to the preferred size.
+#   Over 5 GB          -10000  a hard cap, whatever the running time
+#   Trailer or sample  -10000  the Internet Archive has plenty
+#   Looks HD             +100  names saying 720p, 1080p, HD, Blu-ray, WEB-DL: preferred among
+#                              equals (most Internet Archive names give no quality at all)
+# Change them in Radarr: Settings > Custom Formats, and the scores under Settings > Profiles.
+def custom_format(name, implementation, **fields):
+    existing = next((f for f in call("radarr", "GET", "/customformat") if f["name"] == name), None)
+    spec = next(s for s in call("radarr", "GET", "/customformat/schema") if s["implementation"] == implementation)
+    spec = set_fields(spec, **fields)
+    spec["name"] = name
+    body = {"name": name, "includeCustomFormatWhenRenaming": False, "specifications": [spec]}
+    if existing:
+        body["id"] = existing["id"]
+        call("radarr", "PUT", f"/customformat/{existing['id']}", body)
+    else:
+        call("radarr", "POST", "/customformat", body)
+        print(f"radarr: added custom format '{name}'")
+
+SCORES = {"Over 5 GB": -10000, "Trailer or sample": -10000, "Looks HD": 100}
+custom_format("Over 5 GB", "SizeSpecification", min=5, max=100000)
+custom_format("Trailer or sample", "ReleaseTitleSpecification", value=r"\b(trailer|teaser|sample|featurette)\b")
+custom_format("Looks HD", "ReleaseTitleSpecification", value=r"\b(720p|1080p|HD|Blu-?Ray|BDRip|WEB-?DL|WEB-?Rip)\b")
+
+profile = next(p for p in call("radarr", "GET", "/qualityprofile") if p["name"] == "Watchlist")
+for item in profile["formatItems"]:
+    item["score"] = SCORES.get(item["name"], item["score"])
+profile["minFormatScore"] = 0
+call("radarr", "PUT", f"/qualityprofile/{profile['id']}", profile)
+print("radarr: Watchlist profile scores set")
+
+# Size per minute of running time: back to Radarr's defaults for Unknown (an earlier version of
+# this script capped it at 30), since "Over 5 GB" is the cap now.
 for d in call("radarr", "GET", "/qualitydefinition"):
-    if d["quality"]["name"] == "Unknown" and d["maxSize"] != 30:
-        d.update(maxSize=30, preferredSize=20)
+    if d["quality"]["name"] == "Unknown" and d["maxSize"] == 30:
+        d.update(maxSize=100, preferredSize=95)
         call("radarr", "PUT", f"/qualitydefinition/{d['id']}", d)
-        print("radarr: Unknown capped at 30 MB/min")
+        print("radarr: Unknown size limits back to defaults")
 
 # The watchlist: its .env gets Radarr's address, API key and a webhook secret; Radarr gets a
 # webhook that calls the watchlist on grab, import and delete.

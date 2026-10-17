@@ -77,7 +77,12 @@ Every **film** on the list is downloaded, through the *arr stack on the Pi (see 
 2. Radarr searches through Prowlarr, picks a release, and hands it to the Pi's qBittorrent. When it's done, Radarr hard-links it into the library, which Jellyfin shows.
 3. **Radarr's webhook** tells the watchlist what happened, and the card moves along: *looking for a copy* → *downloading* → **in library**, with a push alert "Downloaded: it's in your library."
 4. **Safety nets:** if Radarr can't be reached, the film is marked *sending to Radarr* and re-sent every 5 minutes. The daily check asks Radarr about every film still in progress, in case a webhook was missed.
-5. **Wrong title** drops the old film from Radarr (with its file) and sends the right one. **Deleting a card doesn't touch Radarr**; delete the film in Radarr too if you want the file gone. Deleting a film in Radarr puts its card back to a normal release-tracking card.
+5. **Removing things:**
+   - **Delete** (or "remove …" in the chat) takes the card off the list. A film still being looked for or downloading is cancelled in Radarr and removed from qBittorrent. A film already downloaded **stays** in the library. **Undo** sends it to Radarr again.
+   - **Delete file** (only on downloaded films; tap twice) deletes the film in Radarr with its library file, so Jellyfin drops it. The card stays, back to release tracking. Only from the list, never from the chat.
+   - **Wrong title** drops the old film from Radarr, with its file, and sends the right one.
+   - Deleting a film in Radarr itself puts its card back to release tracking.
+   - The torrent's own copy (in `/srv/data/torrents`) stays while qBittorrent seeds it; remove the torrent in qBittorrent to free that space. (A seeding limit that clears these automatically is a possible later step.)
 
 ### Asking
 

@@ -53,19 +53,52 @@ public sealed class Downloads(RadarrClient radarr, ItemStore items, AlertStore a
         return (await items.GetAsync(item.Id))!;
     }
 
-    /// <summary>Drops a film from Radarr, with any file, e.g. when the card was the wrong title.</summary>
-    public async Task ForgetAsync(int radarrId, CancellationToken ct)
+    /// <summary>
+    /// Drops a film from Radarr: cancels any download (removing it from qBittorrent) and deletes
+    /// the film with its library file, so Jellyfin drops it too. Used for the wrong-title fix,
+    /// for deleting a card that's still downloading, and for "Delete file".
+    /// </summary>
+    public async Task<bool> ForgetAsync(int radarrId, CancellationToken ct)
     {
         if (!IsOn)
-            return;
+            return false;
         try
         {
+            await radarr.CancelDownloadsAsync(radarrId, ct);
             await radarr.DeleteAsync(radarrId, ct);
+            return true;
         }
         catch (HttpRequestException ex)
         {
             log.LogWarning(ex, "Couldn't remove Radarr film {Id}", radarrId);
+            return false;
         }
+    }
+
+    /// <summary>
+    /// A card was deleted. A film still being looked for or downloaded is cancelled in Radarr; a
+    /// downloaded one stays in the library (use DeleteFileAsync for that).
+    /// </summary>
+    public async Task CardDeletedAsync(Item item, CancellationToken ct)
+    {
+        if (item.DownloadState is DownloadStates.Imported or null)
+            return;
+        if (item.RadarrId is { } radarrId)
+            await ForgetAsync(radarrId, ct);
+        await items.SetDownloadAsync(item.Id, null, null);
+    }
+
+    /// <summary>
+    /// Deletes the downloaded film and its file. The card stays, back to release tracking.
+    /// Null if Radarr couldn't do it, so nothing claims the file is gone when it isn't.
+    /// </summary>
+    public async Task<Item?> DeleteFileAsync(Item item, CancellationToken ct)
+    {
+        if (item.RadarrId is { } radarrId && !await ForgetAsync(radarrId, ct))
+            return null;
+        await items.SetDownloadAsync(item.Id, null, null);
+        await LeaveLibraryAsync(item);
+        return (await items.GetAsync(item.Id))!;
     }
 
     /// <summary>One webhook call from Radarr.</summary>

@@ -64,7 +64,7 @@ public sealed class WatchlistTools(WatchlistService watchlist, ItemStore items, 
                         "description":"Omit for everything except removed items"}}}
             """),
         Tool("remove_item",
-            "Remove an item from the watchlist, by its item id from list_items.",
+            "Remove an item from the watchlist, by its item id from list_items. A film still downloading is cancelled; a downloaded file is kept.",
             """{"type":"object","properties":{"item_id":{"type":"integer"}},"required":["item_id"]}"""),
         Tool("mark_watched",
             "Mark an item as watched, by its item id from list_items.",
@@ -102,8 +102,8 @@ public sealed class WatchlistTools(WatchlistService watchlist, ItemStore items, 
                 "where_to_watch" => await WhereToWatch(args, ct),
                 "add_item" => await AddItem(args, userText, effects, ct),
                 "list_items" => await ListItems(args),
-                "remove_item" => await SetStatus(args, Statuses.Removed),
-                "mark_watched" => await SetStatus(args, Statuses.Watched),
+                "remove_item" => await SetStatus(args, Statuses.Removed, ct),
+                "mark_watched" => await SetStatus(args, Statuses.Watched, ct),
                 "ask_user_to_choose" => await AskUserToChoose(args, effects, ct),
                 _ => new { error = $"unknown tool {name}" },
             };
@@ -225,14 +225,13 @@ public sealed class WatchlistTools(WatchlistService watchlist, ItemStore items, 
         }).ToList();
     }
 
-    private async Task<object> SetStatus(JsonObject args, string status)
+    private async Task<object> SetStatus(JsonObject args, string status, CancellationToken ct)
     {
         var id = (long?)args["item_id"] ?? throw new KeyNotFoundException("item_id is required");
-        var item = await items.GetAsync(id);
+        var item = await watchlist.SetStatusAsync(id, status, ct);
         if (item is null)
             return new { error = $"no item {id}" };
-        await items.SetStatusAsync(id, status);
-        return new { result = status, item.Title, item.Year };
+        return new { result = status, item.Title, item.Year, download = Download(item) };
     }
 
     private async Task<object> AskUserToChoose(JsonObject args, TurnEffects effects, CancellationToken ct)

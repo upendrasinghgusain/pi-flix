@@ -376,6 +376,9 @@ function card(item) {
     isSnoozed(item)
       ? el("button", { type: "button", onclick: () => patch(item, { clearSnooze: true }, "Unsnoozed") }, "Unsnooze")
       : el("button", { type: "button", onclick: () => openSnooze(item) }, "Snooze"),
+    item.downloadState === "imported"
+      ? el("button", { type: "button", class: "danger", onclick: (e) => deleteFile(item, e.currentTarget) }, "Delete file")
+      : null,
     el("button", { type: "button", class: "danger", onclick: () => remove(item) }, "Delete"));
 
   return el("article", { class: "card", id: `item-${item.id}` },
@@ -443,7 +446,8 @@ async function remove(item) {
     await api(`/api/items/${item.id}`, { method: "PATCH", json: { status: "removed" } });
     items = items.filter((i) => i.id !== item.id);
     renderItems();
-    toast(`Deleted ${label(item)}`, {
+    const cancelled = DOWNLOAD[item.downloadState] ? "; download cancelled" : "";
+    toast(`Deleted ${label(item)}${cancelled}`, {
       label: "Undo",
       run: async () => {
         try {
@@ -454,6 +458,24 @@ async function remove(item) {
       },
     });
   } catch (e) { toast(e.message); }
+}
+
+// Deleting a file can't be undone, so the button asks for a second tap.
+async function deleteFile(item, button) {
+  if (!button.dataset.armed) {
+    button.dataset.armed = "1";
+    button.textContent = "Tap again to delete the file";
+    setTimeout(() => { delete button.dataset.armed; button.textContent = "Delete file"; }, 4000);
+    return;
+  }
+  button.disabled = true;
+  try {
+    replaceItem(await api(`/api/items/${item.id}/file`, { method: "DELETE" }));
+    toast(`Deleted the file for ${label(item)}`);
+  } catch (e) {
+    button.disabled = false;
+    toast(e.message);
+  }
 }
 
 async function checkNow(item) {

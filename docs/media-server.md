@@ -262,7 +262,16 @@ flowchart LR
 6. **Radarr's webhook** calls the watchlist (`http://watchlist:8190/hooks/radarr`, user `radarr` and a secret from the watchlist's `.env`), so the card moves to *downloading*, then *in library*, and your phone gets an alert. The watchlist container is on the same Docker network for this.
 
 - **Indexers:** only the Internet Archive, set up in Prowlarr, which copies it to Radarr and Sonarr. Studio films aren't on legal indexers, so this pipeline won't find your watchlist titles; that's expected.
-- **Quality profiles:** the watchlist uses **Watchlist** (made by setup.py): Unknown and SD to 1080p, no upgrades. Internet Archive names rarely state a quality, so Radarr calls most of them *Unknown*, and the built-in HD profiles reject them. *Unknown* is capped at 30 MB per minute (about 2.7 GB for a 90-minute film); change the caps in Radarr under **Settings → Quality**. Avoid *Any*: it ranks a 59 GB 4K remux first and lets trailers through.
+- **Quality profile Watchlist** (made by setup.py): Unknown and SD to 1080p, no upgrades. Internet Archive names rarely state a quality, so Radarr calls most of them *Unknown*, and the built-in HD profiles reject them. Avoid *Any*: it ranks a 59 GB 4K remux first and lets trailers through.
+- **How Radarr chooses:** quality first (1080p beats 720p beats SD beats Unknown), then the custom-format score, then the size closest to "preferred". The Watchlist profile rejects anything scoring below 0:
+
+  | Custom format | Score | Effect |
+  | --- | --- | --- |
+  | Over 5 GB | −10000 | Never downloads more than 5 GB |
+  | Trailer or sample | −10000 | Skips trailers, teasers, samples |
+  | Looks HD | +100 | Prefers names saying 720p, 1080p, HD, Blu-ray, WEB-DL |
+
+  To change them: Radarr → **Settings → Custom Formats** (the rules) and **Settings → Profiles → Watchlist** (the scores, and which qualities are allowed and in what order).
 - **Internet Archive quirk:** an item holds several formats (`.mp4`, `.ogv`, `.mp3`, thumbnails). Radarr may import the `.ogv` rather than the better `.mp4`; check the file in Radarr and use **Manual Import** if so.
 - **Wiring:** [pi/arr/setup.py](../pi/arr/setup.py) sets up the root folders, renaming, the download client, the indexer and the Prowlarr links through the apps' APIs. It's safe to re-run.
 - **qBittorrent** skips its password for requests from the stack's Docker network (`172.20.0.0/16`), so the apps need no password for it. Its web page and the three apps listen on the Pi only.

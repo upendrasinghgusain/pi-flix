@@ -92,7 +92,9 @@ public sealed class FakeRadarr : HttpMessageHandler
             ("GET", ["movie", "lookup", "tmdb"]) => Json(new JsonObject { ["tmdbId"] = int.Parse(query["tmdbId"]!), ["title"] = "Looked up" }),
             ("GET", ["movie", var id]) => Films.TryGetValue(int.Parse(id), out var f) ? Json(Node(f)) : new HttpResponseMessage(HttpStatusCode.NotFound),
             ("GET", ["qualityprofile"]) => Json(JsonNode.Parse("""[{"id": 1, "name": "Any"}, {"id": 7, "name": "Watchlist"}]""")!),
-            ("GET", ["queue", "details"]) => Json(new JsonArray(Films.Values.Where(f => f.Id == int.Parse(query["movieId"]!) && f.InQueue).Select(_ => (JsonNode)new JsonObject()).ToArray())),
+            // A film's queue entry has the film's id, to keep the fake simple.
+            ("GET", ["queue", "details"]) => Json(new JsonArray(Films.Values.Where(f => f.Id == int.Parse(query["movieId"]!) && f.InQueue).Select(f => (JsonNode)new JsonObject { ["id"] = f.Id }).ToArray())),
+            ("DELETE", ["queue", var id]) when Films.TryGetValue(int.Parse(id), out var queued) && queued.InQueue => Dequeue(queued),
             ("POST", ["movie"]) => Json(Node(Add((JsonObject)JsonNode.Parse(await request.Content!.ReadAsStringAsync(cancellationToken))!))),
             ("POST", ["command"]) => Json(new JsonObject { ["id"] = 1 }),
             ("DELETE", ["movie", var id]) => Films.Remove(int.Parse(id)) ? new HttpResponseMessage(HttpStatusCode.OK) : new HttpResponseMessage(HttpStatusCode.NotFound),
@@ -105,6 +107,12 @@ public sealed class FakeRadarr : HttpMessageHandler
         var film = new Film { Id = _nextId++, TmdbId = (int)body["tmdbId"]!, Added = body };
         Films[film.Id] = film;
         return film;
+    }
+
+    private static HttpResponseMessage Dequeue(Film film)
+    {
+        film.InQueue = false;
+        return new HttpResponseMessage(HttpStatusCode.OK);
     }
 
     private static JsonNode Node(Film f) => new JsonObject { ["id"] = f.Id, ["tmdbId"] = f.TmdbId, ["hasFile"] = f.HasFile };

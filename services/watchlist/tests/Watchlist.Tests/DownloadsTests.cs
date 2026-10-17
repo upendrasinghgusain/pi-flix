@@ -172,6 +172,72 @@ public sealed class DownloadsTests : IDisposable
     }
 
     [Fact]
+    public async Task Deleting_a_card_that_is_downloading_cancels_it_in_radarr_and_qbittorrent()
+    {
+        var (item, _, _) = await AddWeapons();
+        var film = _world.Radarr.Films.Values.Single();
+        film.InQueue = true;
+
+        await _world.Watchlist.SetStatusAsync(item.Id, Statuses.Removed);
+
+        Assert.Contains($"DELETE queue/{film.Id}?removeFromClient=true&blocklist=false", _world.Radarr.Requests);
+        Assert.Empty(_world.Radarr.Films);
+        Assert.Null((await _world.Items.GetAsync(item.Id))!.DownloadState);
+    }
+
+    [Fact]
+    public async Task Undo_after_deleting_sends_the_film_again()
+    {
+        var (item, _, _) = await AddWeapons();
+        await _world.Watchlist.SetStatusAsync(item.Id, Statuses.Removed);
+
+        var restored = await _world.Watchlist.SetStatusAsync(item.Id, Statuses.Available);
+
+        Assert.Equal(DownloadStates.Searching, restored!.DownloadState);
+        Assert.Single(_world.Radarr.Films);
+    }
+
+    [Fact]
+    public async Task Deleting_a_card_keeps_a_downloaded_film()
+    {
+        var (item, _, _) = await AddWeapons();
+        var film = _world.Radarr.Films.Values.Single();
+        await _world.Downloads.HandleAsync(Event("Download", film));
+
+        await _world.Watchlist.SetStatusAsync(item.Id, Statuses.Removed);
+
+        Assert.Single(_world.Radarr.Films);
+        Assert.DoesNotContain(_world.Radarr.Requests, r => r.StartsWith("DELETE"));
+    }
+
+    [Fact]
+    public async Task Delete_file_removes_the_film_from_radarr_and_the_card_goes_back_to_tracking()
+    {
+        var (item, _, _) = await AddWeapons();
+        var film = _world.Radarr.Films.Values.Single();
+        await _world.Downloads.HandleAsync(Event("Download", film));
+
+        var after = await _world.Downloads.DeleteFileAsync((await _world.Items.GetAsync(item.Id))!, default);
+
+        Assert.Contains($"DELETE movie/{film.Id}?deleteFiles=true", _world.Radarr.Requests);
+        Assert.Null(after!.DownloadState);
+        Assert.Equal(Statuses.Available, after.Status);
+    }
+
+    [Fact]
+    public async Task Delete_file_says_so_when_radarr_is_down_and_changes_nothing()
+    {
+        var (item, _, _) = await AddWeapons();
+        await _world.Downloads.HandleAsync(Event("Download", _world.Radarr.Films.Values.Single()));
+        _world.Radarr.Down = true;
+
+        var after = await _world.Downloads.DeleteFileAsync((await _world.Items.GetAsync(item.Id))!, default);
+
+        Assert.Null(after);
+        Assert.Equal(DownloadStates.Imported, (await _world.Items.GetAsync(item.Id))!.DownloadState);
+    }
+
+    [Fact]
     public async Task Fixing_a_wrong_title_drops_the_old_film_from_radarr_and_sends_the_new_one()
     {
         _world.Tmdb.On("movie/999", Samples.WeaponsMovie.Replace("1078605", "999"));

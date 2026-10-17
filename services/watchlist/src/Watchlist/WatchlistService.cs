@@ -105,6 +105,23 @@ public sealed class WatchlistService(
         return ((await items.GetAsync(id))!, found);
     }
 
+    /// <summary>
+    /// Changes a card's status, for the list's buttons and the agent alike. Deleting a card cancels
+    /// a film Radarr is still looking for or downloading; bringing it back (Undo) sends it again.
+    /// </summary>
+    public async Task<Item?> SetStatusAsync(long id, string status, CancellationToken ct = default)
+    {
+        var item = await items.GetAsync(id);
+        if (item is null)
+            return null;
+        await items.SetStatusAsync(id, status);
+        if (status == Statuses.Removed && item.Status != Statuses.Removed)
+            await downloads.CardDeletedAsync(item, ct);
+        else if (item.Status == Statuses.Removed && status != Statuses.Removed)
+            return await downloads.SendAsync((await items.GetAsync(id))!, ct);
+        return await items.GetAsync(id);
+    }
+
     public async Task<Availability> WhereToWatchAsync(int tmdbId, string mediaType, CancellationToken ct = default) =>
         Availability.From(await tmdb.GetTitleAsync(tmdbId, mediaType, ct), Today);
 

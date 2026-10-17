@@ -158,7 +158,7 @@ api.MapGet("/items", async (string? status, ItemStore items) =>
         ? Results.BadRequest()
         : Results.Ok((await items.ListAsync(status)).Select(ItemDto.From)));
 
-api.MapPatch("/items/{id:long}", async (long id, ItemPatch patch, ItemStore items) =>
+api.MapPatch("/items/{id:long}", async (long id, ItemPatch patch, ItemStore items, WatchlistService watchlist, CancellationToken ct) =>
 {
     if (await items.GetAsync(id) is null)
         return Results.NotFound();
@@ -166,7 +166,7 @@ api.MapPatch("/items/{id:long}", async (long id, ItemPatch patch, ItemStore item
     {
         if (!Statuses.All.Contains(patch.Status))
             return Results.BadRequest();
-        await items.SetStatusAsync(id, patch.Status);
+        await watchlist.SetStatusAsync(id, patch.Status, ct);
     }
     if (patch.Notes is not null)
         await items.SetNotesAsync(id, patch.Notes.Trim() == "" ? null : patch.Notes.Trim());
@@ -187,6 +187,16 @@ api.MapPut("/items/{id:long}/match", async (long id, ChooseRequest request, Watc
     return item is null
         ? Results.Conflict(new { error = "That title is already on your list." })
         : Results.Ok(ItemDto.From(item));
+});
+
+// Deletes the downloaded film (Radarr removes the file; Jellyfin drops it). The card stays.
+api.MapDelete("/items/{id:long}/file", async (long id, ItemStore items, Downloads downloads, CancellationToken ct) =>
+{
+    if (await items.GetAsync(id) is not { } item)
+        return Results.NotFound();
+    return await downloads.DeleteFileAsync(item, ct) is { } updated
+        ? Results.Ok(ItemDto.From(updated))
+        : Results.Problem("Radarr couldn't delete it just now. Try again in a minute.", statusCode: StatusCodes.Status502BadGateway);
 });
 
 api.MapPost("/items/{id:long}/check", async (long id, WatchlistService watchlist, CancellationToken ct) =>

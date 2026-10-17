@@ -75,6 +75,18 @@ public sealed class RadarrClient
         return queue.Count > 0;
     }
 
+    /// <summary>Stops the film's downloads and removes them, with their data, from qBittorrent.</summary>
+    public async Task CancelDownloadsAsync(int id, CancellationToken ct)
+    {
+        var queue = await _http.GetFromJsonAsync<JsonArray>($"queue/details?movieId={id}", ct) ?? [];
+        foreach (var entry in queue.OfType<JsonObject>())
+        {
+            using var response = await _http.DeleteAsync($"queue/{(int)entry["id"]!}?removeFromClient=true&blocklist=false", ct);
+            if (response.StatusCode != HttpStatusCode.NotFound)
+                await EnsureSuccessAsync(response, ct);
+        }
+    }
+
     /// <summary>Removes the film from Radarr, and its file if it has one.</summary>
     public async Task DeleteAsync(int id, CancellationToken ct)
     {
