@@ -1,7 +1,7 @@
 """Wire Prowlarr, Radarr, Sonarr and qBittorrent together through their REST APIs, and link
 Radarr with the watchlist (/opt/watchlist). Runs on the Pi. Reads API keys from each config.xml
 and never prints them or the webhook secret. Safe to re-run."""
-import json, os, re, secrets, urllib.request, urllib.error
+import json, os, re, secrets, urllib.parse, urllib.request, urllib.error
 
 def key(app):
     return re.search(r"<ApiKey>(\w+)</ApiKey>", open(f"/opt/arr/{app}/config.xml").read()).group(1)
@@ -56,9 +56,19 @@ def rename_on(app, flag):
     call(app, "PUT", f"/config/naming/{naming['id']}", naming)
     print(f"{app}: renaming on")
 
+# qBittorrent: skip the Internet Archive's extras. Its _meta files change after the torrent is
+# made, so they never finish, and Radarr waits for the whole torrent before importing.
+# The .ogv is a second, lower-quality copy of the video.
+QBT = "http://127.0.0.1:8085/api/v2"
+SKIP = ["*_meta.xml", "*_meta.sqlite", "*_files.xml", "__ia_thumb.jpg", "*.ogv", "*.gif", "*.png", "*.asr.js", "*.asr.srt"]
+prefs = {"excluded_file_names_enabled": True, "excluded_file_names": "\n".join(SKIP)}
+urllib.request.urlopen(urllib.request.Request(f"{QBT}/app/setPreferences",
+                       data=urllib.parse.urlencode({"json": json.dumps(prefs)}).encode()), timeout=30)
+print("qbittorrent: Internet Archive extras skipped")
+
 # Radarr and Sonarr: where the library lives, renaming, and the download client.
 root_folder("radarr", "/data/library/movies")
-root_folder("sonarr", "/data/library/tv")
+root_folder("sonarr", "/data/library/shows")
 rename_on("radarr", "renameMovies")
 rename_on("sonarr", "renameEpisodes")
 from_schema("radarr", "downloadclient", "QBittorrent", "qBittorrent",
@@ -76,6 +86,15 @@ else:
     ia["appProfileId"] = 1
     call("prowlarr", "POST", "/indexer?forceSave=true", ia)
     print("prowlarr: added Internet Archive")
+
+# No RSS checks: for the Internet Archive that's "every film, newest first", which takes ~30 s
+# uncached and times out. Each timeout pauses the indexer, blocking real searches for a while.
+# Searches for a named film take under a second and stay on.
+for profile in call("prowlarr", "GET", "/appprofile"):
+    if profile["enableRss"]:
+        profile["enableRss"] = False
+        call("prowlarr", "PUT", f"/appprofile/{profile['id']}", profile)
+        print(f"prowlarr: RSS off in sync profile '{profile['name']}'")
 
 for app, port in [("radarr", 7878), ("sonarr", 8989)]:
     from_schema("prowlarr", "applications", app.capitalize(), app.capitalize(),

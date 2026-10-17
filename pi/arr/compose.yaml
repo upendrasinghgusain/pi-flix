@@ -2,8 +2,8 @@
 # Legal indexers only (the Internet Archive). Everything lives under /srv/data, one filesystem, so
 # imports are hard links and torrents keep seeding:
 #   /srv/data/torrents                   downloads (qBittorrent categories "radarr" and "sonarr")
-#   /srv/data/library/{movies,tv}        imported and renamed; Jellyfin reads this
-# Kept apart from /srv/media, which Syncthing owns. Web pages listen on the Pi only; use an SSH tunnel.
+#   /srv/data/library/{movies,shows}     imported and renamed; the one folder Jellyfin shows
+# Web pages listen on the Pi only; use an SSH tunnel.
 x-common: &common
   restart: unless-stopped
   networks: [arr]

@@ -18,18 +18,18 @@ Roughly in the order worth doing. Each item says why it matters and what is alre
 
 The TV, the laptop's Syncthing and the docs all use `192.168.1.40`. Add a **DHCP reservation** for the Pi in the router (for its Ethernet connection too, once it has one), so the address never changes.
 
-## 3. The 1 TB drive as `/srv/media`
+## 3. The 1 TB drive as `/srv/data`
 
-**Why:** takes the films and the wear off the SD card. The SD card has about 90 GB free and writes at 28 MB/s.
+**Why:** takes the films and the wear off the SD card. The SD card has about 80 GB free and writes at 28 MB/s.
 
 **Plan:**
 1. Plug the drive into a blue USB 3 port.
 2. Check its health (SMART), since it's an older drive.
 3. Format it ext4 with the label `media`.
-4. Copy `/srv/media` across.
-5. Mount it at `/srv/media` at boot, by label, with `nofail`.
+4. Stop the *arr stack, Jellyfin and the watchlist; copy `/srv/data` across **preserving hard links** (`rsync -aH`), since the library and the seeding torrents share their data.
+5. Mount it at `/srv/data` at boot, by label, with `nofail`.
 
-Jellyfin and Syncthing need no changes. A later, larger drive is swapped in the same way. The Pi's 5 A power supply can power portable drives over USB (1.6 A).
+The library (`library/`) and the downloads (`torrents/`) must stay on the same drive, or Radarr's imports become full copies. Jellyfin and the *arr stack need no changes. A later, larger drive is swapped in the same way. The Pi's 5 A power supply can power portable drives over USB (1.6 A).
 
 ## 4. Run the whole Pi from NVMe
 

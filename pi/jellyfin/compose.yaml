@@ -1,4 +1,4 @@
-# Jellyfin media server, home network only. Movies go in /srv/media/movies.
+# Jellyfin media server, home network only. Films and shows are in /srv/data/library.
 services:
   jellyfin:
     image: jellyfin/jellyfin:12.1
@@ -11,9 +11,10 @@ services:
     volumes:
       - ./config:/config
       - ./cache:/cache
-      - /srv/media:/media:ro
-      # What Radarr and Sonarr import (pi/arr): legal, public-domain titles.
-      - /srv/data/library:/library:ro
+      # The one library: movies/ and shows/. Radarr and Sonarr (pi/arr) file into it, and so does
+      # anything you copy in yourself. Inside Jellyfin it's /media, as it was in the Syncthing days,
+      # so library paths and watch history carried over.
+      - /srv/data/library:/media:ro
     # Leave a core free for the risky-business stacks if a video needs transcoding.
     cpus: "3.0"
     restart: unless-stopped

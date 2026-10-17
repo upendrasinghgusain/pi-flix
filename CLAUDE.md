@@ -19,16 +19,18 @@ Home media server on the Raspberry Pi that also hosts risky-business. Read [docs
 
 | Thing | Deployed at | Copy in repo |
 | --- | --- | --- |
-| Jellyfin 12.1 | Pi `/opt/jellyfin` (config in `config/`, home-only: `config/config/network.xml` `EnableRemoteAccess=false`) | `pi/jellyfin/compose.yaml` |
-| Syncthing 2.1.5 (receive-only) | Pi `/opt/syncthing` (settings in `data/`) | `pi/syncthing/compose.yaml` |
-| Syncthing 2.1.5 (send-only) | Laptop, winget package; *Syncthing* scheduled task at logon; settings in `%LOCALAPPDATA%\Syncthing` | — |
+| Jellyfin 12.1 | Pi `/opt/jellyfin` (config in `config/`, home-only: `config/config/network.xml` `EnableRemoteAccess=false`); shows `/srv/data/library` as `/media` | `pi/jellyfin/compose.yaml` |
+| **The library** | Pi `/srv/data/library/{movies,shows}`: the one folder Jellyfin shows; Radarr/Sonarr file into it | — |
+| Syncthing 2.1.5 (receive-only), **stopped** since 2026-10-18 | Pi `/opt/syncthing` (settings in `data/`) | `pi/syncthing/compose.yaml` |
+| Syncthing 2.1.5 (send-only), **folder paused** | Laptop, winget package; *Syncthing* scheduled task at logon; settings in `%LOCALAPPDATA%\Syncthing` | — |
 | Ignore list | `C:\Jellyfin Media\.stignore` (Syncthing writes it) | `laptop/syncthing/.stignore` |
 | Prowlarr, Radarr, Sonarr, qBittorrent | Pi `/opt/arr` (settings in one folder per app; web pages on `127.0.0.1` only); data in `/srv/data` | `pi/arr/compose.yaml`, `pi/arr/setup.py` |
 | MediaTidy | `%LOCALAPPDATA%\MediaTidy\bin`, run by qBittorrent "on torrent finished" with `--apply "%F"` | `tools/media-tidy` |
 
 The deployed files are the truth. When changing one, update the copy here as well, and commit.
 
-- **Syncthing:** folder id `jellyfin-media`. Both ends are configured through the REST API (`X-API-Key` from `config.xml`), home network only (no global discovery, relays or NAT). On the Pi, the API is reachable only from the Pi itself.
+- **Syncthing is paused** (Pi container down, laptop folder paused): laptop films no longer reach the Pi. `/srv/media` is empty; don't point anything at it. Don't restart Syncthing onto `/srv/data/library` as receive-only: Radarr's films would show as local changes, and *Revert* would delete them.
+- **Syncthing (when it ran):** folder id `jellyfin-media`. Both ends are configured through the REST API (`X-API-Key` from `config.xml`), home network only (no global discovery, relays or NAT). On the Pi, the API is reachable only from the Pi itself.
 - **Bulk seeding** (USB stick or rsync into `/srv/media`): pause the laptop's folder, copy, **rescan the Pi's folder**, then un-pause. Otherwise the Pi downloads everything again. If a file shows as *locally changed* on the Pi, revert it (`POST /rest/db/revert`); that rebuilds it from local data.
 
 ## MediaTidy
@@ -51,5 +53,5 @@ The chat agent, list and release checker: spec in [docs/watchlist.md](docs/watch
 - C#, latest .NET LTS (SDK pinned in `tools/media-tidy/global.json`).
 - Pin exact versions of container images and tools. Choose releases at least two weeks old.
 - MediaTidy's scope is filing finished downloads. The watchlist tracks, alerts, and hands films to Radarr.
-- The *arr stack (Pi `/opt/arr`, copy in `pi/arr/`) searches and fetches, with **legal indexers only** (the Internet Archive). Never add, configure or tune indexers for pirated content, and keep its folders (`/srv/data`) apart from `/srv/media`.
+- The *arr stack (Pi `/opt/arr`, copy in `pi/arr/`) searches and fetches, with **legal indexers only** (the Internet Archive). Never add, configure or tune indexers for pirated content, and its library `/srv/data/library` is the one Jellyfin shows; torrents and library must stay on one filesystem (hard links).
 - The risky-business repo is **public**. Keep media details out of it.
