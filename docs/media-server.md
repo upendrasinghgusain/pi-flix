@@ -167,7 +167,7 @@ These existed already, or were set up once:
 
 ### 9. Deleting a film
 
-Now: a downloaded film from the watchlist's **Delete file** button (or in Radarr); anything else by deleting its folder in `/srv/data/library` on the Pi. While Syncthing ran: delete it from `C:\Jellyfin Media` on the laptop. Syncthing deletes it on the Pi, and Jellyfin removes it from the library. Deleting it on the Pi alone doesn't work: the Pi's folder is receive-only, and its own changes are flagged as *locally changed* and can be reverted.
+Now: **in Jellyfin** (the film's **⋮ → Delete media**), from the watchlist's **Delete file** button, or in Radarr. Jellyfin's library mount is writable since 2026-10-18, and your user needs *Allow media deletion* ticked (Dashboard → Users). Radarr and Sonarr then **unmonitor** what you deleted, so they don't download it again (set by setup.py). Radarr's imports are hard links, so the space only comes back when the seeding torrent goes too: [pi/arr/reclaim.py](../pi/arr/reclaim.py) finds finished torrents that were imported but have no file left in the library, and removes them with their data. While Syncthing ran: delete it from `C:\Jellyfin Media` on the laptop. Syncthing deletes it on the Pi, and Jellyfin removes it from the library. Deleting it on the Pi alone doesn't work: the Pi's folder is receive-only, and its own changes are flagged as *locally changed* and can be reverted.
 
 ## Who can get in: every permutation
 
@@ -215,7 +215,9 @@ If step 5 is skipped, the Pi doesn't know it has the files and downloads them al
 | Add a film | Say it in the watchlist chat; Radarr downloads it if a legal indexer has it. Or copy it into `/srv/data/library/movies/Title (Year)/Title (Year).ext` on the Pi yourself. (Laptop downloads land in `C:\Jellyfin Media` but no longer reach the Pi until a new push is built.) |
 | A download didn't appear | Check `%LOCALAPPDATA%\MediaTidy\mediatidy.log` for **NEEDS YOU**. To re-check every download: `MediaTidy.exe` (dry run), then `MediaTidy.exe --apply` |
 | Add episodes | `C:\Jellyfin Media\shows\Show\Season NN\Show SxxEyy.ext` |
-| Remove a film | Delete it from `C:\Jellyfin Media`, and remove the torrent with its files in qBittorrent. The space is only freed once both names are gone. |
+| Remove a film | Delete it in Jellyfin (or the watchlist's **Delete file**). `reclaim.py` then removes the seeding torrent, which frees the space: hourly once its cron line is in, or by hand on the Pi: `python3 /opt/arr/reclaim.py` (dry run), then `--apply` |
+| Is the download pipeline OK? | The watchlist's **Status** tab: every indexer, and whether Radarr and Sonarr can reach qBittorrent and import. Alerts come for anything broken for half an hour |
+| Try another indexer | `.\pi\arr\indexers.ps1` from the laptop (see [The *arr pipeline](#the-arr-pipeline-public-domain-titles)) |
 | A film is missing or wrong | Jellyfin: **Scan All Libraries**, or **Identify** on the film |
 | Is the sync up to date? | Laptop: `http://127.0.0.1:8384` |
 | Restart a service | On the Pi: `cd /opt/jellyfin && docker compose restart` (or `/opt/syncthing`) |
@@ -268,7 +270,20 @@ flowchart LR
 5. **Jellyfin** sees it within seconds (live monitoring is on), in `/media/movies`.
 6. **Radarr's webhook** calls the watchlist (`http://watchlist:8190/hooks/radarr`, user `radarr` and a secret from the watchlist's `.env`), so the card moves to *downloading*, then *in library*, and your phone gets an alert. The watchlist container is on the same Docker network for this.
 
-- **Indexers:** only the Internet Archive, set up in Prowlarr, which copies it to Radarr and Sonarr. Studio films aren't on legal indexers, so this pipeline won't find your watchlist titles; that's expected.
+- **Indexers:** only the Internet Archive, set up in Prowlarr, which copies it to Radarr and Sonarr. Studio films aren't on legal indexers, so this pipeline won't find your watchlist titles; that's expected. Prowlarr's catalogue has ~580 definitions, but almost all are piracy sites or private trackers; on 2026-10-18 The Pirate Bay and LimeTorrents had been added by hand and were removed. Keep it to legal sources.
+- **Adding or trying indexers:** [pi/arr/indexers.py](../pi/arr/indexers.py), run from the laptop through [indexers.ps1](../pi/arr/indexers.ps1), which pipes it to the Pi over SSH, so there is nothing to deploy. It only adds definitions on its `LEGAL` list, or a Torznab/Newznab feed of your own:
+
+  ```powershell
+  .\pi\arr\indexers.ps1 list                                   # what's there, paused or not, which apps get it
+  .\pi\arr\indexers.ps1 test "Internet Archive"                # a pass lifts a pause
+  .\pi\arr\indexers.ps1 search "Internet Archive" "Nosferatu"  # what that indexer alone returns
+  .\pi\arr\indexers.ps1 add internetarchive                    # a definition on the LEGAL list
+  .\pi\arr\indexers.ps1 add-torznab "My feed" https://feed.example/api KEY
+  .\pi\arr\indexers.ps1 remove "My feed"
+  ```
+
+  If PowerShell refuses to run scripts, use `powershell -ExecutionPolicy Bypass -File .\pi\arr\indexers.ps1 list`. Prowlarr copies each change to Radarr and Sonarr itself (full sync).
+- **Status tab (watchlist):** every 15 minutes the watchlist reads Prowlarr, Radarr and Sonarr (read-only, keys in its `.env`, filled in by setup.py). Per indexer: searches and failures in the last 24 hours, from Prowlarr's history and log, with each failure sorted into a kind. Timeouts, rate limits, network and server errors are **transient** (a warning: Prowlarr's own back-off retries them). A refused login, a Cloudflare block, a broken definition, or failing on and off for **over a day** is **persistent** (broken). Per app: health (minus the RSS warning, which is on purpose), a live test of qBittorrent, stuck imports in the queue, the last import, and whether it has every indexer Prowlarr syncs. Anything *broken* for 30 minutes sends one push alert, and another when it's fixed (quiet hours respected). Retrying is deliberately gentle: Prowlarr's back-off, the **Test now** button, and the daily re-search. Nothing hammers archive.org.
 - **Quality profile Watchlist** (made by setup.py): Unknown and SD to 1080p, no upgrades. Internet Archive names rarely state a quality, so Radarr calls most of them *Unknown*, and the built-in HD profiles reject them. Avoid *Any*: it ranks a 59 GB 4K remux first and lets trailers through.
 - **How Radarr chooses:** quality first (1080p beats 720p beats SD beats Unknown), then the custom-format score, then the size closest to "preferred". The Watchlist profile rejects anything scoring below 0:
 
@@ -283,7 +298,8 @@ flowchart LR
   - An item holds several formats (`.mp4`, `.ogv`, `.mp3`, thumbnails) plus `_meta.xml`/`_meta.sqlite` files that change after the torrent is made, so they **never finish**, and Radarr waits for the whole torrent. qBittorrent therefore skips them (*Excluded file names*: the `_meta` files, thumbnails, `.ogv`, `.gif`, `.png`, the `.asr` transcripts), set by setup.py. Without that, downloads stall at 99.9%.
   - Its "newest first" listing takes ~30 s uncached, and Prowlarr times out, which **pauses the indexer** and blocks real searches. So RSS is off (Prowlarr's sync profile *Standard*); only searches for a named film run, and they take under a second. If Radarr logs "0 active indexers", test the indexer in Prowlarr and Radarr (Settings → Indexers → Test) to lift the pause.
   - **archive.org slows down Prowlarr on purpose:** the same search takes ~0.5 s with most User-Agents and ~86 s with Prowlarr's (tested 2026-10-18), so Prowlarr often times out and pauses the indexer. We don't disguise Prowlarr to get round it; that's the Internet Archive's call. Instead, searches are retried: the watchlist's daily check asks Radarr to search again for every film still *looking for a copy*, and saying the film again in the chat re-sends a search too.
-- **Wiring:** [pi/arr/setup.py](../pi/arr/setup.py) sets up the root folders, renaming, the download client, the indexer and the Prowlarr links through the apps' APIs. It's safe to re-run.
+- **Wiring:** [pi/arr/setup.py](../pi/arr/setup.py) sets up the root folders, renaming, the download client, the indexer, the Prowlarr links, the Watchlist profile in **both** Radarr and Sonarr, "unmonitor deleted files", and the watchlist's `.env` through the apps' APIs. It's safe to re-run: `sudo python3 /opt/arr/setup.py` (sudo because it writes the watchlist's `.env`).
+- **Space back after deleting:** [pi/arr/reclaim.py](../pi/arr/reclaim.py), deployed to `/opt/arr`. Meant for upendra's crontab, hourly: `17 * * * * python3 /opt/arr/reclaim.py --apply >> /opt/arr/reclaim.log 2>&1`. It keeps a torrent that was never imported, is still in an app's queue, or still has a file in the library.
 - **qBittorrent** skips its password for requests from the stack's Docker network (`172.20.0.0/16`), so the apps need no password for it. Its web page and the three apps listen on the Pi only.
 - **Logins:** the first time you open Radarr, Sonarr or Prowlarr, it asks you to choose a login; set *Authentication required* to *Disabled for local addresses*, and create your own username and password.
 

@@ -6,6 +6,7 @@ using Watchlist.Access;
 using Watchlist.Agent;
 using Watchlist.Alerts;
 using Watchlist.Data;
+using Watchlist.Pipeline;
 using Watchlist.Push;
 using Watchlist.Radarr;
 using Watchlist.Tmdb;
@@ -23,6 +24,8 @@ builder.Services.Configure<TmdbOptions>(builder.Configuration.GetSection("Tmdb")
 builder.Services.Configure<OpenAIOptions>(builder.Configuration.GetSection("OpenAI"));
 builder.Services.Configure<AccessOptions>(builder.Configuration.GetSection("Access"));
 builder.Services.Configure<RadarrOptions>(builder.Configuration.GetSection("Radarr"));
+builder.Services.Configure<ProwlarrOptions>(builder.Configuration.GetSection("Prowlarr"));
+builder.Services.Configure<SonarrOptions>(builder.Configuration.GetSection("Sonarr"));
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase);
 
 builder.Services.AddSingleton(TimeProvider.System);
@@ -46,6 +49,10 @@ builder.Services.AddHostedService<ReleaseChecker>();
 builder.Services.AddHttpClient<TmdbClient>();
 builder.Services.AddHttpClient<RadarrClient>();
 builder.Services.AddTransient<Downloads>();
+// Testing an indexer can take Prowlarr a minute or two when the Internet Archive is slow.
+builder.Services.AddHttpClient<PipelineMonitor>(c => c.Timeout = TimeSpan.FromMinutes(3));
+builder.Services.AddSingleton<PipelineState>();
+builder.Services.AddTransient<PipelineAlerts>();
 builder.Services.AddTransient<WatchlistService>();
 builder.Services.AddTransient<WatchlistTools>();
 builder.Services.AddSingleton<IChatModel, OpenAIChatModel>();
@@ -230,6 +237,26 @@ api.MapPost("/push/test", async (PushStore pushes, IPushSender sender, Cancellat
     foreach (var device in devices)
         results.Add(await sender.SendAsync(device, new { title = "Watchlist", body = "Alerts are on.", tag = "test", url = "./#list" }, ct));
     return Results.Ok(new { devices = devices.Count, sent = results.Count(r => r == PushResult.Sent) });
+});
+
+// The Status tab: the latest pipeline report, re-run if it's over a minute old or on request.
+api.MapGet("/pipeline", async (bool? fresh, PipelineMonitor monitor, PipelineState state, TimeProvider time, CancellationToken ct) =>
+{
+    var report = state.Latest;
+    if (fresh == true || report is null || time.GetUtcNow() - report.CheckedAt > TimeSpan.FromMinutes(1))
+        state.Latest = report = await monitor.RunAsync(ct);
+    return Results.Ok(new { report.CheckedAt, report.State, report.Checks });
+});
+
+// Cloudflare gives up on a request after 100 s, so a slow test answers "still waiting" and
+// carries on in the background; the next refresh shows how it went.
+api.MapPost("/pipeline/indexers/{id:int}/test", async (int id, PipelineMonitor monitor, IHostApplicationLifetime life) =>
+{
+    var test = monitor.TestIndexerAsync(id, life.ApplicationStopping);
+    if (await Task.WhenAny(test, Task.Delay(TimeSpan.FromSeconds(80))) != test)
+        return Results.Accepted(value: new { ok = (bool?)null, message = "Still waiting on the indexer. Refresh in a minute or two to see how it went." });
+    var (ok, message) = await test;
+    return Results.Ok(new { ok, message });
 });
 
 api.MapGet("/search", async (string q, TmdbClient tmdb, CancellationToken ct) =>

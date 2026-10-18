@@ -46,6 +46,21 @@ public sealed class RadarrOptions
     public bool IsConfigured => Url != "" && ApiKey != "";
 }
 
+/// <summary>Another app of the *arr stack, read for the Status tab. Off until Url and ApiKey are set.</summary>
+public abstract class ArrOptions
+{
+    /// <summary>e.g. http://prowlarr:9696 on the Pi's *arr network.</summary>
+    public string Url { get; set; } = "";
+
+    public string ApiKey { get; set; } = "";
+
+    public bool IsConfigured => Url != "" && ApiKey != "";
+}
+
+public sealed class ProwlarrOptions : ArrOptions;
+
+public sealed class SonarrOptions : ArrOptions;
+
 /// <summary>Cloudflare Access, which sits in front of the whole hostname.</summary>
 public sealed class AccessOptions
 {

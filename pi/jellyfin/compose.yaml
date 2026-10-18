@@ -13,8 +13,10 @@ services:
       - ./cache:/cache
       # The one library: movies/ and shows/. Radarr and Sonarr (pi/arr) file into it, and so does
       # anything you copy in yourself. Inside Jellyfin it's /media, as it was in the Syncthing days,
-      # so library paths and watch history carried over.
-      - /srv/data/library:/media:ro
+      # so library paths and watch history carried over. Writable so you can delete what you've
+      # watched (Dashboard > Users > Allow media deletion). Radarr imports by hard link, so the
+      # space comes back once pi/arr/reclaim.py removes the seeding torrent too.
+      - /srv/data/library:/media
     # Leave a core free for the risky-business stacks if a video needs transcoding.
     cpus: "3.0"
     restart: unless-stopped

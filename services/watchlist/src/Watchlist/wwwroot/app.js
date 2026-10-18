@@ -67,13 +67,15 @@ function show(view) {
   }
   $("view-chat").hidden = view !== "chat";
   $("view-list").hidden = view !== "list";
+  $("view-status").hidden = view !== "status";
   if (view === "list") loadItems();
+  else if (view === "status") loadStatus(false);
   else $("input").focus({ preventScroll: true });
 }
 
 for (const tab of document.querySelectorAll(".tabs button")) {
   tab.addEventListener("click", () => {
-    history.replaceState(null, "", tab.dataset.view === "list" ? "#list" : "#");
+    history.replaceState(null, "", tab.dataset.view === "chat" ? "#" : `#${tab.dataset.view}`);
     show(tab.dataset.view);
   });
 }
@@ -623,6 +625,75 @@ bell.addEventListener("click", async () => {
   }
 });
 
+// ---------- Status ----------
+
+const STATE = { ok: "OK", warn: "Needs a look", fail: "Broken" };
+const timeFmt = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
+
+function setStatusDot(state) {
+  const dot = $("status-dot");
+  dot.hidden = state === "ok";
+  dot.className = `tab-dot ${state}`;
+  dot.title = STATE[state];
+}
+
+/** Loads the pipeline report. Quiet = no toast on failure (the start-up check for the tab's dot). */
+async function loadStatus(fresh, quiet) {
+  try {
+    renderStatus(await api(`/api/pipeline${fresh ? "?fresh=true" : ""}`));
+  } catch (e) {
+    if (!quiet) toast(e.message);
+  }
+}
+
+function renderStatus(report) {
+  setStatusDot(report.state);
+  $("status-time").textContent = `Checked at ${timeFmt.format(new Date(report.checkedAt))}`;
+  const areas = new Map();
+  for (const check of report.checks) {
+    if (!areas.has(check.area)) areas.set(check.area, []);
+    areas.get(check.area).push(check);
+  }
+  $("status-list").replaceChildren(...[...areas].map(([area, checks]) =>
+    el("section", { class: "status-group" },
+      el("h2", {}, area),
+      el("ul", {}, checks.map(statusRow)))));
+}
+
+function statusRow(check) {
+  const test = check.indexerId != null && check.state !== "ok"
+    ? el("button", { type: "button", class: "chip", onclick: (e) => testIndexer(check, e.currentTarget) }, "Test now")
+    : null;
+  return el("li", { class: `status-row ${check.state}` },
+    el("span", { class: "dot", role: "img", "aria-label": STATE[check.state] }),
+    el("div", {},
+      el("strong", {}, check.name),
+      el("p", { class: "small" }, check.detail),
+      test));
+}
+
+async function testIndexer(check, button) {
+  button.disabled = true;
+  button.textContent = "Testing…";
+  try {
+    const result = await api(`/api/pipeline/indexers/${check.indexerId}/test`, { method: "POST" });
+    toast(result.message);
+    if (result.ok) await loadStatus(true);
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Test now";
+  }
+}
+
+$("status-refresh").addEventListener("click", async (e) => {
+  const button = e.currentTarget;
+  button.disabled = true;
+  await loadStatus(true);
+  button.disabled = false;
+});
+
 // ---------- Start ----------
 
 if ("serviceWorker" in navigator) {
@@ -633,9 +704,17 @@ if ("serviceWorker" in navigator) {
 }
 // Tapping an alert while the app is open moves to that title.
 navigator.serviceWorker?.addEventListener("message", (e) => {
-  if (e.data?.url) { location.hash = new URL(e.data.url, location.href).hash; show("list"); }
+  if (e.data?.url) {
+    location.hash = new URL(e.data.url, location.href).hash;
+    show(location.hash === "#status" ? "status" : "list");
+  }
 });
 
 greet();
-show(location.hash.startsWith("#item-") || location.hash === "#list" ? "list" : "chat");
-window.addEventListener("focus", () => { if (!$("view-list").hidden) loadItems(); });
+show(location.hash === "#status" ? "status"
+  : location.hash.startsWith("#item-") || location.hash === "#list" ? "list" : "chat");
+if (location.hash !== "#status") loadStatus(false, true);
+window.addEventListener("focus", () => {
+  if (!$("view-list").hidden) loadItems();
+  if (!$("view-status").hidden) loadStatus(false);
+});

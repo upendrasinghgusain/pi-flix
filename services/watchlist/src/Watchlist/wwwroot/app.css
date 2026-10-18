@@ -323,3 +323,28 @@ dialog::backdrop { background: rgb(0 0 0 / .45); }
 }
 
 .toast button { border: 0; background: none; color: inherit; font-weight: 700; text-decoration: underline; }
+
+/* Status */
+
+#view-status { overflow-y: auto; }
+
+.tabs button { position: relative; }
+.tab-dot { position: absolute; top: 7px; margin-left: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--waiting); }
+.tab-dot.fail { background: var(--danger); }
+
+.status-tools { display: flex; justify-content: space-between; align-items: center; padding: 14px 0 4px; }
+.status-tools .small { margin: 0; }
+
+.status-group h2 { margin: 14px 0 6px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.status-group ul { margin: 0; padding: 0; list-style: none; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+
+.status-row { display: flex; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--line); }
+.status-row:first-child { border-top: 0; }
+.status-row > div { min-width: 0; overflow-wrap: anywhere; }
+.status-row .small { margin: 2px 0 0; }
+.status-row .chip { margin-top: 8px; }
+.status-row .dot { flex: none; width: 10px; height: 10px; margin-top: 7px; border-radius: 50%; background: var(--available); }
+.status-row.warn .dot { background: var(--waiting); }
+.status-row.fail .dot { background: var(--danger); }
+
+.status-note { padding: 4px 0 20px; }

@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.Extensions.Options;
 using Watchlist.Data;
+using Watchlist.Pipeline;
 using Watchlist.Push;
 using Watchlist.Radarr;
 
@@ -115,11 +116,14 @@ public sealed class CheckRunner(
 
 /// <summary>
 /// Wakes every few minutes: re-sends films Radarr didn't get, runs the daily check when it's due
-/// (with a catch-up on downloads in case a webhook was missed), then delivers alerts.
+/// (with a catch-up on downloads in case a webhook was missed), then delivers alerts. Every
+/// quarter of an hour it also checks the download pipeline, for the Status tab and its alerts.
 /// </summary>
 public sealed class ReleaseChecker(IServiceScopeFactory scopes, TimeProvider time, ILogger<ReleaseChecker> log) : BackgroundService
 {
     public static readonly TimeSpan Tick = TimeSpan.FromMinutes(5);
+    public static readonly TimeSpan PipelineEvery = TimeSpan.FromMinutes(15);
+    private DateTimeOffset _pipelineCheckedAt = DateTimeOffset.MinValue;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -138,6 +142,13 @@ public sealed class ReleaseChecker(IServiceScopeFactory scopes, TimeProvider tim
                     await downloads.ReconcileAsync(stoppingToken);
                 }
                 await runner.DeliverAsync(stoppingToken);
+                if (time.GetUtcNow() - _pipelineCheckedAt >= PipelineEvery)
+                {
+                    _pipelineCheckedAt = time.GetUtcNow();
+                    var report = await scope.ServiceProvider.GetRequiredService<PipelineMonitor>().RunAsync(stoppingToken);
+                    scope.ServiceProvider.GetRequiredService<PipelineState>().Latest = report;
+                    await scope.ServiceProvider.GetRequiredService<PipelineAlerts>().NotifyAsync(report, stoppingToken);
+                }
             }
             catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
             {

@@ -19,12 +19,12 @@ Home media server on the Raspberry Pi that also hosts risky-business. Read [docs
 
 | Thing | Deployed at | Copy in repo |
 | --- | --- | --- |
-| Jellyfin 12.1 | Pi `/opt/jellyfin` (config in `config/`, home-only: `config/config/network.xml` `EnableRemoteAccess=false`); shows `/srv/data/library` as `/media` | `pi/jellyfin/compose.yaml` |
+| Jellyfin 12.1 | Pi `/opt/jellyfin` (config in `config/`, home-only: `config/config/network.xml` `EnableRemoteAccess=false`); shows `/srv/data/library` as `/media`, writable so you can delete what you've watched | `pi/jellyfin/compose.yaml` |
 | **The library** | Pi `/srv/data/library/{movies,shows}`: the one folder Jellyfin shows; Radarr/Sonarr file into it | — |
 | Syncthing 2.1.5 (receive-only), **stopped** since 2026-10-18 | Pi `/opt/syncthing` (settings in `data/`) | `pi/syncthing/compose.yaml` |
 | Syncthing 2.1.5 (send-only), **folder paused** | Laptop, winget package; *Syncthing* scheduled task at logon; settings in `%LOCALAPPDATA%\Syncthing` | — |
 | Ignore list | `C:\Jellyfin Media\.stignore` (Syncthing writes it) | `laptop/syncthing/.stignore` |
-| Prowlarr, Radarr, Sonarr, qBittorrent | Pi `/opt/arr` (settings in one folder per app; web pages on `127.0.0.1` only); data in `/srv/data` | `pi/arr/compose.yaml`, `pi/arr/setup.py` |
+| Prowlarr, Radarr, Sonarr, qBittorrent | Pi `/opt/arr` (settings in one folder per app; web pages on `127.0.0.1` only); data in `/srv/data`; `reclaim.py` frees space of deleted films, `indexers.py` adds/tests indexers (run from the laptop via `pi/arr/indexers.ps1`) | `pi/arr/` |
 | MediaTidy | `%LOCALAPPDATA%\MediaTidy\bin`, run by qBittorrent "on torrent finished" with `--apply "%F"` | `tools/media-tidy` |
 
 The deployed files are the truth. When changing one, update the copy here as well, and commit.
@@ -46,12 +46,12 @@ It's a WinExe so it never shows a window. Pipe it to see output. It must never d
 
 ## Watchlist
 
-The chat agent, list and release checker: spec in [docs/watchlist.md](docs/watchlist.md), code in `services/watchlist`, deployed by `services/watchlist/deploy.sh` to Pi `/opt/watchlist` (copy of its compose file in `pi/watchlist/`). Secrets are in `/opt/watchlist/.env`: never print them. It hands every film on the list to Radarr (the *arr stack) to download; it never searches indexers itself. It sits on the *arr Docker network (`arr_arr`), so start `/opt/arr` first.
+The chat agent, list and release checker: spec in [docs/watchlist.md](docs/watchlist.md), code in `services/watchlist`, deployed by `services/watchlist/deploy.sh` to Pi `/opt/watchlist` (copy of its compose file in `pi/watchlist/`). Secrets are in `/opt/watchlist/.env`: never print them. It hands every film on the list to Radarr (the *arr stack) to download; it never searches indexers itself. It sits on the *arr Docker network (`arr_arr`), so start `/opt/arr` first. Its **Status** tab reads Prowlarr, Radarr and Sonarr (read-only, plus "test indexer") and alerts on anything broken for 30 minutes.
 
 ## Conventions
 
 - C#, latest .NET LTS (SDK pinned in `tools/media-tidy/global.json`).
 - Pin exact versions of container images and tools. Choose releases at least two weeks old.
 - MediaTidy's scope is filing finished downloads. The watchlist tracks, alerts, and hands films to Radarr.
-- The *arr stack (Pi `/opt/arr`, copy in `pi/arr/`) searches and fetches, with **legal indexers only** (the Internet Archive). Never add, configure or tune indexers for pirated content, and its library `/srv/data/library` is the one Jellyfin shows; torrents and library must stay on one filesystem (hard links).
+- The *arr stack (Pi `/opt/arr`, copy in `pi/arr/`) searches and fetches, with **legal indexers only** (the Internet Archive). Never add, configure or tune indexers for pirated content (`indexers.py` only adds definitions on its `LEGAL` list), and its library `/srv/data/library` is the one Jellyfin shows; torrents and library must stay on one filesystem (hard links).
 - The risky-business repo is **public**. Keep media details out of it.

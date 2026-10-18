@@ -15,6 +15,7 @@
       <nav class="tabs" role="tablist">
         <button role="tab" id="tab-chat" aria-selected="true" data-view="chat">Chat</button>
         <button role="tab" id="tab-list" aria-selected="false" data-view="list">List</button>
+        <button role="tab" id="tab-status" aria-selected="false" data-view="status">Status<span id="status-dot" class="tab-dot" hidden></span></button>
       </nav>
       <button type="button" id="bell" class="icon-btn" aria-label="Turn on alerts" aria-pressed="false" title="Alerts">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 0 0-5.5-6.84V3.5a1.5 1.5 0 0 0-3 0v.66A7 7 0 0 0 5 11v5l-2 2v1h18v-1l-2-2Z"/></svg>
@@ -55,6 +56,14 @@
         Where-to-watch data from <a href="https://www.justwatch.com" target="_blank" rel="noopener">JustWatch</a>.
         This product uses the TMDb API but is not endorsed or certified by TMDb.
       </footer>
+    </section>
+    <section id="view-status" class="view" aria-labelledby="tab-status" hidden>
+      <div class="status-tools">
+        <span id="status-time" class="small"></span>
+        <button type="button" id="status-refresh" class="chip">Refresh</button>
+      </div>
+      <div id="status-list" class="status-list"></div>
+      <p class="small status-note">Indexers, Radarr and Sonarr, checked every 15 minutes. Anything broken for half an hour sends an alert, and another when it's fixed.</p>
     </section>
   </main>
 
