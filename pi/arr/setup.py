@@ -63,10 +63,14 @@ QBT = "http://127.0.0.1:8085/api/v2"
 # Unfinished files are named ".!qB", so Radarr and Sonarr never import one: a skipped file can be
 # partly on disk (see unstick.py), and Sonarr once imported a half-fetched .ogv over the .mp4.
 SKIP = ["*_meta.xml", "*_meta.sqlite", "*_files.xml", "__ia_thumb.jpg", "*.ogv", "*.gif", "*.png", "*.asr.js", "*.asr.srt"]
-prefs = {"excluded_file_names_enabled": True, "excluded_file_names": "\n".join(SKIP), "incomplete_files_ext": True}
+# No seeding: a torrent stops as soon as it's complete (ratio 0, action 0 = stop). Radarr and
+# Sonarr import it, then remove it with its data ("remove completed downloads", on by default),
+# so the library file is the only copy and deleting it in Jellyfin frees the space at once.
+prefs = {"excluded_file_names_enabled": True, "excluded_file_names": "\n".join(SKIP), "incomplete_files_ext": True,
+         "max_ratio_enabled": True, "max_ratio": 0, "max_ratio_act": 0}
 urllib.request.urlopen(urllib.request.Request(f"{QBT}/app/setPreferences",
                        data=urllib.parse.urlencode({"json": json.dumps(prefs)}).encode()), timeout=30)
-print("qbittorrent: Internet Archive extras skipped")
+print("qbittorrent: Internet Archive extras skipped, no seeding, unfinished files named .!qB")
 
 # Radarr and Sonarr: where the library lives, renaming, and the download client.
 root_folder("radarr", "/data/library/movies")
