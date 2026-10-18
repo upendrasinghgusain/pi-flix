@@ -4,7 +4,7 @@ Roughly in the order worth doing. Each item says why it matters and what is alre
 
 ## 1. Ethernet for the Pi
 
-**Why:** syncing runs at about 5 MB/s, even though both the Pi and the laptop have a strong 5 GHz signal (the Pi at -36 dBm and 540 Mbit/s). The limits are the Pi's small Wi-Fi chip and both machines sharing the air. With the Pi on a cable, expect 25–40 MB/s, at which point storage becomes the limit instead.
+**Why:** copying from the laptop ran at about 5 MB/s (Syncthing, paused since 2026-10-18), even though both the Pi and the laptop have a strong 5 GHz signal (the Pi at -36 dBm and 540 Mbit/s). The limits are the Pi's small Wi-Fi chip and both machines sharing the air. With the Pi on a cable, expect 25–40 MB/s, at which point storage becomes the limit instead.
 
 **Options, best first:**
 1. A flat Cat6 cable along skirting boards or under the carpet (fine up to 100 m).
@@ -16,20 +16,20 @@ Roughly in the order worth doing. Each item says why it matters and what is alre
 
 ## 2. A fixed address
 
-The TV, the laptop's Syncthing and the docs all use `192.168.1.40`. Add a **DHCP reservation** for the Pi in the router (for its Ethernet connection too, once it has one), so the address never changes.
+The TV, the laptop (SSH, and Syncthing when it runs) and the docs all use `192.168.1.40`. Add a **DHCP reservation** for the Pi in the router (for its Ethernet connection too, once it has one), so the address never changes.
 
 ## 3. The 1 TB drive as `/srv/data`
 
-**Why:** takes the films and the wear off the SD card. The SD card has about 80 GB free and writes at 28 MB/s.
+**Why:** takes the films and the wear off the SD card. The SD card has about 87 GB free (2026-10-18) and writes at 28 MB/s.
 
 **Plan:**
 1. Plug the drive into a blue USB 3 port.
 2. Check its health (SMART), since it's an older drive.
 3. Format it ext4 with the label `media`.
-4. Stop the *arr stack, Jellyfin and the watchlist; copy `/srv/data` across **preserving hard links** (`rsync -aH`), since the library and the seeding torrents share their data.
+4. Stop the *arr stack, Jellyfin and the watchlist; copy `/srv/data` across with `rsync -aH` (keeps any hard links; normally there are none, since nothing seeds and finished torrents are removed).
 5. Mount it at `/srv/data` at boot, by label, with `nofail`.
 
-The library (`library/`) and the downloads (`torrents/`) must stay on the same drive, or Radarr's imports become full copies. Jellyfin and the *arr stack need no changes. A later, larger drive is swapped in the same way. The Pi's 5 A power supply can power portable drives over USB (1.6 A).
+The library (`library/`) and the downloads (`torrents/`) must stay on the same drive, or Radarr's imports become full copies (twice the space until the torrent is removed). Jellyfin and the *arr stack need no changes. A later, larger drive is swapped in the same way. The Pi's 5 A power supply can power portable drives over USB (1.6 A).
 
 ## 4. Run the whole Pi from NVMe
 
@@ -49,9 +49,9 @@ The library (`library/`) and the downloads (`torrents/`) must stay on the same d
 
 ## 5. Backups that leave the Pi
 
-**Why:** risky-business's prod backups, Jellyfin's settings and, later, photos and documents all exist only on the Pi. Follow the 3-2-1 rule: three copies, on two kinds of storage, one away from the house.
+**Why:** risky-business's prod backups, Jellyfin's settings, the watchlist's database (`/opt/watchlist/data`), the *arr settings (`/opt/arr`) and, later, photos and documents all exist only on the Pi. Follow the 3-2-1 rule: three copies, on two kinds of storage, one away from the house.
 
-**Options:** a second USB drive plus a cloud copy (e.g. Backblaze B2 or a similar storage bucket, encrypted with restic). Films don't need backing up: the laptop holds the master copies.
+**Options:** a second USB drive plus a cloud copy (e.g. Backblaze B2 or a similar storage bucket, encrypted with restic). Films don't need backing up: the laptop holds the master copies of its films, and Radarr's downloads can be fetched again.
 
 ## 6. Remote access with Tailscale
 
@@ -70,21 +70,29 @@ Jellyfin's `EnableRemoteAccess` setting would need switching back on for Tailsca
 
 These hold irreplaceable data, so do items 3–5 first. Reach them with Tailscale. Keep Cloudflare subdomains for small things shared by link.
 
-## 8. Watchlist release tracker
+## 8. Getting laptop films to the Pi again
 
-**Why:** finding what to watch, and knowing when it's out, takes the most time.
+**Why:** Syncthing is paused (2026-10-18), so films MediaTidy files into `C:\Jellyfin Media` on the laptop stay there. Syncthing can't simply restart: pointed at `/srv/data/library` as receive-only, Radarr's films would show as *locally changed*, and *Revert* would delete them.
 
-**Design:** see [watchlist.md](watchlist.md). In short:
-- **The chat app:** a web app you install to your phone, with voice, behind a Cloudflare Access login. An OpenAI agent turns rough descriptions into the right title and saves it.
-- **The release checker:** watches each saved title for UK dates, UK streaming services and your Jellyfin library, and sends push alerts when something changes. For example: "*Weapons* is now on Prime", or "out to rent today".
+**Options:** MediaTidy copying each finished film to the Pi over SSH (`scp` into `/srv/data/library`), or Syncthing on a separate subfolder that only the laptop writes to. Ethernet (item 1) makes either faster.
 
-**Scope:** it tracks and notifies only. It doesn't search for or download anything.
+## 9. Watchlist: what's left
+
+Done: the chat app, release alerts, downloading through Radarr, and the Status tab ([watchlist.md](watchlist.md)). Still to do:
+- **"In your library" from Jellyfin**, so TV and films you copied in yourself count too (today only Radarr's films do); a Jellyfin API key goes in its `.env`.
+- **TV downloads:** Sonarr can't search the Internet Archive by episode, so this waits for a source it can search, or a "push this item" helper in the app.
+- Weekly digest, a "Hey Google" shortcut, the MCP server, auto-*watched* from Jellyfin plays.
 
 ## Housekeeping
 
+- Add the *arr cron lines to upendra's crontab on the Pi (`crontab -e`, no sudo); see [media-server.md](media-server.md#the-arr-pipeline-public-domain-titles):
+  - `*/5 * * * * python3 /opt/arr/unstick.py --apply >> /opt/arr/unstick.log 2>&1` (needed: Internet Archive downloads can stick at 99%);
+  - `17 * * * * python3 /opt/arr/reclaim.py --apply >> /opt/arr/reclaim.log 2>&1` (safety net).
+- Regenerate Prowlarr's API key (part of it was printed in a session on 2026-10-18): Prowlarr → Settings → General, then `sudo python3 /opt/arr/setup.py` and restart the watchlist.
+- Delete *Animals (2026)* from the library: it came from The Pirate Bay before that indexer was removed.
 - Remove `/etc/sudoers.d/010-upendra-nopasswd` from the Pi. It was added for the initial setup.
 - Change the Pi password. It was shared in a chat during setup.
-- Create a non-admin Jellyfin user for the TV.
+- Create a non-admin Jellyfin user for the TV (with *Allow media deletion* if you want to delete from the TV).
 - Check the router: UPnP off, IPv6 firewall on.
 - Consider a guest Wi-Fi for visitors and smart gadgets.
 - After `winget upgrade Syncthing.Syncthing`, point the *Syncthing* scheduled task at the new versioned folder.

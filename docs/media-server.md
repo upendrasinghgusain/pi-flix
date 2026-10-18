@@ -1,12 +1,30 @@
 # Home media server
 
-How films get from the laptop to the Sony TV, told in the order things happen. At each step: what happens, who proves what to whom, and what had to be set up beforehand.
+How films and shows get to the Sony TV, and how they leave again. At each step: what happens, who proves what to whom, and what had to be set up beforehand.
 
 Set up 2026-10-16. Home network only, by choice.
 
-> **Changed 2026-10-18: one library folder, Syncthing paused.** Everything Jellyfin shows is now in **`/srv/data/library/movies`** and **`/srv/data/library/shows`** on the Pi (`/media/movies` and `/media/shows` inside Jellyfin, as before, so watch history carried over). Radarr files downloads there ([the *arr pipeline](#the-arr-pipeline-public-domain-titles)). The films and shows that came from the laptop were moved there too.
->
-> Syncthing is **paused, not removed**: the Pi's container is stopped (`/opt/syncthing` kept), and the laptop's `jellyfin-media` folder is paused. `C:\Jellyfin Media` on the laptop is no longer copied to the Pi, so steps 2–4 of the story below are history for now. A new way to push films from the laptop (e.g. MediaTidy copying each finished film to the Pi) is still to be built. To bring Syncthing back it would need pointing at `/srv/data/library`, and Radarr's films would then show as *locally changed* on a receive-only folder, so it needs rethinking first.
+## How it works now (since 2026-10-18)
+
+```text
+watchlist chat ──► Radarr (films) ──► Prowlarr ──► Internet Archive
+ or Radarr/Sonarr       │                            (legal sources only)
+ by hand                ▼
+                   qBittorrent (Pi) ──► stops when complete, no seeding
+                        │
+                        ▼  Radarr/Sonarr hard-link it in, then remove the torrent
+                /srv/data/library/{movies,shows} ──► Jellyfin ──► Sony TV
+                        ▲
+                        └── delete it in Jellyfin: space freed at once, never fetched again
+```
+
+- **One library folder:** everything Jellyfin shows is in **`/srv/data/library/movies`** and **`/srv/data/library/shows`** on the Pi (`/media/movies` and `/media/shows` inside Jellyfin, as before, so watch history carried over). The films and shows that came from the laptop were moved there too.
+- **Downloads** come through [the *arr pipeline](#the-arr-pipeline-public-domain-titles): say a film in the watchlist chat, and Radarr fetches it if a legal source has it. Nothing seeds; the library file is the only copy.
+- **Deleting** in Jellyfin (or the watchlist) frees the space straight away and isn't undone by a re-download ([step 9](#9-deleting-a-film)).
+- **Watching it all:** the watchlist's **Status** tab shows every indexer, and whether Radarr and Sonarr can reach qBittorrent and import, with push alerts for anything broken.
+- **Syncthing is paused, not removed:** the Pi's container is stopped (`/opt/syncthing` kept), and the laptop's `jellyfin-media` folder is paused. `C:\Jellyfin Media` on the laptop is no longer copied to the Pi, so steps 2–4 of the story below are history for now. A new way to push films from the laptop is still to be built ([roadmap](roadmap.md)). Bringing Syncthing back would mean pointing it at `/srv/data/library`, where Radarr's films would show as *locally changed* on a receive-only folder, so it needs rethinking first.
+
+The story below was written for the first setup (laptop → Syncthing → Pi). Steps 0–1 still happen on the laptop, steps 5–9 still describe Jellyfin and the TV.
 
 ## The cast
 
@@ -39,8 +57,10 @@ flowchart LR
 | **Syncthing (Pi)** | Receives the folder from the laptop | Docker container `syncthing` |
 | **Jellyfin** | Media server: organises the films, fetches artwork, streams to the TV | Docker container `jellyfin`, port 8096 |
 | **Sony TV** | Google TV running the Jellyfin app | Home Wi-Fi |
+| **Watchlist** | Chat app: add films, release alerts, the Status tab; sends films to Radarr | Docker container `watchlist`, `chat.upendragusain.co.uk` |
+| **Prowlarr, Radarr, Sonarr, qBittorrent** | The *arr pipeline: find, fetch and file public-domain titles | Docker containers in `/opt/arr` |
 
-The Pi also runs your website and the risky-business dev and prod stacks. The media setup is completely separate from them, apart from sharing the hardware.
+The diagram shows the original Syncthing setup; the current flow is at the top of this page. The Pi also runs your website and the risky-business dev and prod stacks. The media setup is completely separate from them, apart from sharing the hardware.
 
 ## Before any of this: prerequisites
 
@@ -50,7 +70,7 @@ These existed already, or were set up once:
 2. **The Pi**, a Raspberry Pi 5 with 8 GB of RAM, on Wi-Fi at `192.168.1.40`, with the official 5 A power supply, so its USB ports can power external drives.
 3. **Docker on the Pi**, already installed for risky-business. Both new programs run as containers.
 4. **SSH access to the Pi** from the laptop with your `id_rsa` key. This is how everything on the Pi was installed and how it is administered.
-5. **Storage**: the Pi's SD card, about 90 GB free. A 1 TB USB drive is planned to replace it.
+5. **Storage**: the Pi's SD card, about 87 GB free (2026-10-18). A 1 TB USB drive is planned to replace it.
 6. **winget** on the laptop (Windows' package manager), used to install Syncthing.
 
 ## Concepts used below
@@ -60,7 +80,8 @@ These existed already, or were set up once:
 | **Container** | A program packaged with everything it needs, run in isolation by Docker. It can only see the folders and network it is given. Removing it leaves the rest of the Pi untouched. |
 | **Pinned version** | Images are named with exact versions (`jellyfin/jellyfin:12.1`, `syncthing/syncthing:2.1.5`), so nothing changes unless you change it. Both were chosen to be a few weeks old rather than brand new. |
 | **Host networking** | The containers use the Pi's own network directly, rather than a private Docker network. This is needed so the TV and the laptop can *discover* them by broadcasting on the home network. |
-| **Bind mount** | A Pi folder made visible inside a container. `/srv/media` on the Pi appears as `/media` inside Jellyfin, **read-only**, so Jellyfin can never change or delete a film. |
+| **Bind mount** | A Pi folder made visible inside a container. `/srv/data/library` on the Pi appears as `/media` inside Jellyfin. It was read-only until 2026-10-18; it's writable now so you can delete what you've watched from Jellyfin. |
+| **Hard link** | A second name for the same data on the same drive, using no extra space. Radarr and Sonarr import downloads this way; the space is freed only when every name is gone, which is why finished torrents are removed straight after import. |
 | **User 1000** | Both containers run as your Linux user `upendra`, not as root, so files they create are yours. |
 | **Library** | A Jellyfin collection of one content type pointing at a folder: **Movies** reads `/media/movies`, **Shows** reads `/media/shows`. The type decides how names are understood. |
 | **Metadata** | Posters, plots, cast, ratings and collections. Jellyfin looks films up by name and year on **TMDb** (The Movie Database) and **OMDb** (which adds IMDb and Rotten Tomatoes ratings). |
@@ -79,7 +100,7 @@ These existed already, or were set up once:
   2. works out whether it's a film (title and year) or an episode (`SxxEyy`);
   3. gives it its tidy name in `C:\Jellyfin Media`, along with any English subtitles.
 
-  It does this with a **hard link**: a second name for the same data on the same drive. So no extra space is used, and qBittorrent keeps seeding under the original name.
+  It does this with a **hard link**: a second name for the same data on the same drive. So no extra space is used, and the laptop's qBittorrent keeps seeding under the original name. (This is the laptop; the Pi's qBittorrent doesn't seed.)
   - A **ledger** remembers what has been filed, so a film you later delete is never put back.
   - Anything it can't work out is left alone and logged as **NEEDS YOU** in `%LOCALAPPDATA%\MediaTidy\mediatidy.log`.
 - **Access:** none. Both programs run as you, on the laptop.
@@ -141,7 +162,7 @@ These existed already, or were set up once:
   2. looks it up **outbound** over HTTPS on TMDb and OMDb;
   3. saves the poster, background, plot, cast, ratings and collection in its own database (`/opt/jellyfin/config`).
 
-  The film's folder is never written to, because it is read-only to Jellyfin. Overnight, Jellyfin also generates scrubbing previews and chapter thumbnails.
+  Jellyfin only writes to the film's folder when you delete it. Overnight, Jellyfin also generates scrubbing previews and chapter thumbnails.
 - **Access:** outbound only. Jellyfin uses its built-in access to TMDb and OMDb, and you have no accounts with them. Nothing on the internet connects in.
 - **Set up once:**
   - **Jellyfin 12.1** in a container (`/opt/jellyfin`), limited to 3 of the 4 CPU cores so the website always has one.
@@ -167,7 +188,11 @@ These existed already, or were set up once:
 
 ### 9. Deleting a film
 
-Now: **in Jellyfin** (the film's **⋮ → Delete media**), from the watchlist's **Delete file** button, or in Radarr. Jellyfin's library mount is writable since 2026-10-18, and your user needs *Allow media deletion* ticked (Dashboard → Users). Radarr and Sonarr then **unmonitor** what you deleted, so they don't download it again (set by setup.py), and the watchlist card leaves the download flow (it stops "looking for a copy"). To have it again, ask for it in the chat: the watchlist re-monitors it in Radarr and searches. There's no seeding (since 2026-10-18): qBittorrent stops each torrent as soon as it's complete, Radarr or Sonarr hard-links it into the library and then removes the torrent with its data. So the library file is the only copy, and deleting it frees the space at once. [pi/arr/reclaim.py](../pi/arr/reclaim.py) is the safety net for any torrent left behind: one that was imported but has no file left in the library. While Syncthing ran: delete it from `C:\Jellyfin Media` on the laptop. Syncthing deletes it on the Pi, and Jellyfin removes it from the library. Deleting it on the Pi alone doesn't work: the Pi's folder is receive-only, and its own changes are flagged as *locally changed* and can be reverted.
+- **How:** in Jellyfin (the film's **⋮ → Delete media**; your user needs *Allow media deletion*, Dashboard → Users), with the watchlist's **Delete file** button, or in Radarr/Sonarr. Anything else (files you copied in yourself): delete its folder in `/srv/data/library`.
+- **The space comes back at once:** nothing seeds, so the library file is the only copy (see [step 4 of the pipeline](#the-arr-pipeline-public-domain-titles)). [pi/arr/reclaim.py](../pi/arr/reclaim.py) is a safety net for any torrent left behind.
+- **It isn't downloaded again:** Radarr and Sonarr **unmonitor** what you deleted (set by setup.py), and the watchlist card leaves the download flow, back to release tracking, with no more searching.
+- **To have it again:** ask for it in the chat. The watchlist re-monitors it in Radarr and searches.
+- **While Syncthing ran** (history): you deleted on the laptop and Syncthing deleted on the Pi. Deleting on the Pi alone didn't work, because its folder was receive-only.
 
 ## Who can get in: every permutation
 
@@ -181,7 +206,7 @@ Now: **in Jellyfin** (the film's **⋮ → Delete media**), from the watchlist's
 | A guest on your Wi-Fi | Open Prowlarr, Radarr, Sonarr or the Pi's qBittorrent | Can't reach them | All listen only on `127.0.0.1`; only qBittorrent's peer port 6881 is open, to the home network |
 | Anyone on the internet | Reach Jellyfin directly | Can't | No router port forwarding, and Jellyfin's **remote connections are off**, so it refuses non-home addresses even if a port were ever opened |
 | Anyone on the internet | Via your Cloudflare domain | Can't | The tunnel only serves the website, risky-business and `chat.upendragusain.co.uk`; any other name gets a 404 |
-| Anyone on the internet | Use the watchlist at `chat.upendragusain.co.uk` | Can't | Cloudflare Access app *chat* lets in only `upendra.gusain@gmail.com` (emailed one-time code, login lasts a month), and the app checks Access's signed token too. It can't reach the media |
+| Anyone on the internet | Use the watchlist at `chat.upendragusain.co.uk` | Can't | Cloudflare Access app *chat* lets in only `upendra.gusain@gmail.com` (emailed one-time code, login lasts a month), and the app checks Access's signed token too. It has no direct access to the media; through Radarr it can fetch a film or delete a downloaded one, and its Status tab only reads Prowlarr, Radarr and Sonarr (plus "test indexer") |
 | Anyone on the internet | Find your Syncthing devices | Can't | Global discovery, relays and NAT traversal are all off |
 | You, from outside the house | Watch anything | Can't, by choice | Options for later: Tailscale (recommended) or a direct subdomain with Caddy and port forwarding. The Cloudflare tunnel is ruled out, because its terms forbid video and it would put the website at risk |
 | You, administering the Pi | SSH in | Allowed | `id_rsa` private key on the laptop; its public half in the Pi's `authorized_keys`. Home network only |
@@ -212,23 +237,26 @@ If step 5 is skipped, the Pi doesn't know it has the files and downloads them al
 
 | Task | How |
 | --- | --- |
-| Add a film | Say it in the watchlist chat; Radarr downloads it if a legal indexer has it. Or copy it into `/srv/data/library/movies/Title (Year)/Title (Year).ext` on the Pi yourself. (Laptop downloads land in `C:\Jellyfin Media` but no longer reach the Pi until a new push is built.) |
-| A download didn't appear | Check `%LOCALAPPDATA%\MediaTidy\mediatidy.log` for **NEEDS YOU**. To re-check every download: `MediaTidy.exe` (dry run), then `MediaTidy.exe --apply` |
-| Add episodes | `C:\Jellyfin Media\shows\Show\Season NN\Show SxxEyy.ext` |
-| Remove a film | Delete it in Jellyfin (or the watchlist's **Delete file**). The space is freed straight away: nothing seeds, so there's no second name for the data. It isn't downloaded again (Radarr unmonitors it); to have it back, ask for it in the chat |
-| Is the download pipeline OK? | The watchlist's **Status** tab: every indexer, and whether Radarr and Sonarr can reach qBittorrent and import. Alerts come for anything broken for half an hour |
+| Add a film | Say it in the watchlist chat; Radarr downloads it if a legal source has it. Or copy it into `/srv/data/library/movies/Title (Year)/Title (Year).ext` on the Pi yourself |
+| Add episodes | Sonarr can't search the Internet Archive by episode: find the item, then push it to Sonarr ([how](#the-arr-pipeline-public-domain-titles)). Or copy it into `/srv/data/library/shows/Show/Season NN/Show SxxEyy.ext` on the Pi |
+| Remove a film or episode | Delete it in Jellyfin (or the watchlist's **Delete file**). The space is freed straight away and it isn't downloaded again; to have it back, ask for it in the chat |
+| Is the download pipeline OK? | The watchlist's **Status** tab: every indexer, and whether Radarr and Sonarr can reach qBittorrent and import. **Test now** lifts a paused indexer. Alerts come for anything broken for half an hour |
+| A download is stuck at ~99% | `python3 /opt/arr/unstick.py --apply` on the Pi (or let its cron line do it) |
 | Try another indexer | `.\pi\arr\indexers.ps1` from the laptop (see [The *arr pipeline](#the-arr-pipeline-public-domain-titles)) |
+| Re-apply the *arr settings | `sudo python3 /opt/arr/setup.py` on the Pi (safe to re-run) |
 | A film is missing or wrong | Jellyfin: **Scan All Libraries**, or **Identify** on the film |
-| Is the sync up to date? | Laptop: `http://127.0.0.1:8384` |
-| Restart a service | On the Pi: `cd /opt/jellyfin && docker compose restart` (or `/opt/syncthing`) |
-| Update Jellyfin or Syncthing on the Pi | Change the version in that folder's `compose.yaml`, then `docker compose up -d` |
+| A laptop download didn't get filed | Check `%LOCALAPPDATA%\MediaTidy\mediatidy.log` for **NEEDS YOU**. To re-check every download: `MediaTidy.exe` (dry run), then `MediaTidy.exe --apply`. (Laptop films stay on the laptop while Syncthing is paused) |
+| Restart a service | On the Pi: `cd /opt/jellyfin && docker compose restart` (or `/opt/arr`, `/opt/watchlist`). Start `/opt/arr` before `/opt/watchlist`, which joins its network |
+| Update Jellyfin or the *arr apps | Change the version in that folder's `compose.yaml` (and the copy in `pi/`), then `docker compose up -d` |
+| Update the watchlist | `services/watchlist/deploy.sh` from Git Bash on the laptop |
 | Update Syncthing on the laptop | `winget upgrade Syncthing.Syncthing`, then point the *Syncthing* scheduled task at the new folder: the program's path includes its version number |
 
 ## Where things are
 
 | Thing | Location |
 | --- | --- |
-| Downloads | Laptop, `C:\qBittorrent` (the original names, kept for seeding) |
+| Laptop downloads | Laptop, `C:\qBittorrent` (the original names, kept for seeding by the laptop's own qBittorrent) |
+| Pi downloads | Pi, `/srv/data/torrents`: only while downloading; empty otherwise (no seeding) |
 | MediaTidy | Source in [tools/media-tidy](../tools/media-tidy/); installed in `%LOCALAPPDATA%\MediaTidy\bin`; log and ledger in `%LOCALAPPDATA%\MediaTidy` |
 | The library (what Jellyfin shows) | Pi, `/srv/data/library/movies`, `/srv/data/library/shows` (`/media/...` inside Jellyfin) |
 | Laptop media folder | `C:\Jellyfin Media` (MediaTidy files into it; not copied to the Pi while Syncthing is paused) |
@@ -239,9 +267,11 @@ If step 5 is skipped, the Pi doesn't know it has the files and downloads them al
 | Syncthing (laptop), **folder paused** | Program installed by winget; settings in `%LOCALAPPDATA%\Syncthing`; started by the *Syncthing* scheduled task |
 | Ignore list | `C:\Jellyfin Media\.stignore` (copy in [laptop/syncthing](../laptop/syncthing/.stignore)) |
 | *arr stack | Pi, `/opt/arr/compose.yaml` (copy in [pi/arr](../pi/arr/compose.yaml)), settings in `/opt/arr/{prowlarr,radarr,sonarr,qbittorrent}`; downloads in `/srv/data/torrents`, library in `/srv/data/library` |
+| *arr scripts | Pi, `/opt/arr/{setup,indexers,unstick,reclaim}.py` (copies in [pi/arr](../pi/arr/)); logs `/opt/arr/{unstick,reclaim}.log` once their cron lines are in |
+| Watchlist | Pi, `/opt/watchlist` (`compose.yaml`, `.env` with secrets, `data/watchlist.db`); code in [services/watchlist](../services/watchlist/) |
 | Cloudflare tunnel | Pi, `cloudflared` system service, `/etc/cloudflared/config.yml` (dated backups alongside; not in any repo) |
 | Cloudflare Access | Zero Trust team `upendragusain`, app *chat* covering `chat.upendragusain.co.uk`, policy *Only me* |
-| Web pages | Jellyfin `http://192.168.1.40:8096`; Syncthing on the laptop `http://127.0.0.1:8384` |
+| Web pages | Jellyfin `http://192.168.1.40:8096`; watchlist `https://chat.upendragusain.co.uk`; the *arr apps through an SSH tunnel (below); Syncthing on the laptop `http://127.0.0.1:8384` |
 
 ## The *arr pipeline (public-domain titles)
 
@@ -268,7 +298,7 @@ flowchart LR
 3. **The best release goes to qBittorrent** with the category `radarr` or `sonarr`.
 4. **When it finishes, qBittorrent stops it** (share limit: ratio 0, then stop; set by setup.py), and **Radarr hard-links the file** into `/srv/data/library/movies/Title (Year)/`, renamed. Radarr then **removes the torrent and its data** (*Remove completed downloads* on the download client), so the library file is the only copy. Nothing seeds.
 5. **Jellyfin** sees it within seconds (live monitoring is on), in `/media/movies`.
-6. **Radarr's webhook** calls the watchlist (`http://watchlist:8190/hooks/radarr`, user `radarr` and a secret from the watchlist's `.env`), so the card moves to *downloading*, then *in library*, and your phone gets an alert. The watchlist container is on the same Docker network for this.
+6. **Radarr's webhook** calls the watchlist (`http://watchlist:8190/hooks/radarr`, user `radarr` and a secret from the watchlist's `.env`), so the card moves to *downloading*, then *in library*, and your phone gets an alert. The watchlist container is on the same Docker network for this. When the file is deleted later, the webhook takes the card out of the download flow.
 
 - **Indexers:** only the Internet Archive, set up in Prowlarr, which copies it to Radarr and Sonarr. Studio films aren't on legal indexers, so this pipeline won't find your watchlist titles; that's expected. Prowlarr's catalogue has ~580 definitions, but almost all are piracy sites or private trackers; on 2026-10-18 The Pirate Bay and LimeTorrents had been added by hand and were removed. Keep it to legal sources.
 - **Adding or trying indexers:** [pi/arr/indexers.py](../pi/arr/indexers.py), run from the laptop through [indexers.ps1](../pi/arr/indexers.ps1), which pipes it to the Pi over SSH, so there is nothing to deploy. It only adds definitions on its `LEGAL` list, or a Torznab/Newznab feed of your own:
@@ -296,16 +326,17 @@ flowchart LR
   To change them: Radarr → **Settings → Custom Formats** (the rules) and **Settings → Profiles → Watchlist** (the scores, and which qualities are allowed and in what order).
 - **Internet Archive quirks:**
   - An item holds several formats (`.mp4`, `.ogv`, `.mp3`, thumbnails) plus `_meta.xml`/`_meta.sqlite` files that change after the torrent is made, so they **never finish**, and Radarr waits for the whole torrent. qBittorrent therefore skips them (*Excluded file names*: the `_meta` files, thumbnails, `.ogv`, `.gif`, `.png`, the `.asr` transcripts), set by setup.py. Without that, downloads stall at 99.9%.
-  - **Downloads stuck one piece short:** a piece can straddle the end of the video and the start of a skipped file, and qBittorrent won't fetch a skipped file's bytes from archive.org's web seeds, so the torrent sits at ~99% forever (seen 2026-10-18). [pi/arr/unstick.py](../pi/arr/unstick.py) wants the neighbouring file for a moment, waits for the shared piece, then skips it again. qBittorrent names unfinished files `.!qB` (setup.py), so the partial extra is never imported: Sonarr once imported a half-fetched `.ogv` instead of the `.mp4`. Meant for cron every 5 minutes: `*/5 * * * * python3 /opt/arr/unstick.py --apply >> /opt/arr/unstick.log 2>&1`.
-  - Its "newest first" listing takes ~30 s uncached, and Prowlarr times out, which **pauses the indexer** and blocks real searches. So RSS is off (Prowlarr's sync profile *Standard*); only searches for a named film run, and they take under a second. If Radarr logs "0 active indexers", test the indexer in Prowlarr and Radarr (Settings → Indexers → Test) to lift the pause.
-  - **archive.org slows down Prowlarr on purpose:** the same search takes ~0.5 s with most User-Agents and ~86 s with Prowlarr's (tested 2026-10-18), so Prowlarr often times out and pauses the indexer. We don't disguise Prowlarr to get round it; that's the Internet Archive's call. Instead, searches are retried: the watchlist's daily check asks Radarr to search again for every film still *looking for a copy*, and saying the film again in the chat re-sends a search too.
+  - **Downloads stuck one piece short:** a piece can straddle the end of the video and the start of a skipped file, and qBittorrent won't fetch a skipped file's bytes from archive.org's web seeds, so the torrent sits at ~99% forever (seen 2026-10-18). [pi/arr/unstick.py](../pi/arr/unstick.py) wants the neighbouring file for a moment, waits for the shared piece, then skips it again. qBittorrent names unfinished files `.!qB` (setup.py), so the partial extra is never imported: Sonarr once imported a half-fetched `.ogv` instead of the `.mp4`. Meant for upendra's crontab, every 5 minutes (**not installed yet**, see the roadmap's housekeeping): `*/5 * * * * python3 /opt/arr/unstick.py --apply >> /opt/arr/unstick.log 2>&1`.
+  - **RSS is off** (Prowlarr's sync profile *Standard*): the archive's "newest first" listing is too slow, and each timeout **pauses the indexer**, blocking real searches. Only searches for a named title run. Radarr and Sonarr therefore show an "RSS sync" health warning; it's expected, and the Status tab hides it.
+  - **archive.org slows down Prowlarr on purpose:** the same search takes ~0.5 s with most User-Agents and 40–95 s with Prowlarr's (tested 2026-10-18), so Prowlarr sometimes times out and pauses the indexer for a while (its back-off; longer after each failure in a row). We don't disguise Prowlarr to get round it; that's the Internet Archive's call. To lift a pause: **Test now** on the Status tab, or `.\pi\arr\indexers.ps1 test "Internet Archive"`. Searches are retried: the watchlist's daily check asks Radarr to search again for every film still *looking for a copy*, and saying the film again in the chat re-sends a search too.
 - **Sonarr and the Internet Archive:** Sonarr searches for exact episodes ("One Step Beyond S01E01", or "S01" for a season), and archive.org matches titles only, where uploads are named like "One Step Beyond S1 E1 The Bride Possessed". So Sonarr's own searches find nothing (tested 2026-10-18), though it parses those names fine. What works: find the item (`indexers.ps1 search "Internet Archive" "One Step Beyond Bride"`), then hand it to Sonarr with its *push release* API (`POST /api/v3/release/push` with the title and `https://archive.org/download/<id>/<id>_archive.torrent`). The series and episode must be monitored. Sonarr then sends it to qBittorrent and imports it like any grab, as a hard link (tested end to end with *One Step Beyond* S01E01).
-- **Wiring:** [pi/arr/setup.py](../pi/arr/setup.py) sets up the root folders, renaming, the download client, the indexer, the Prowlarr links, the Watchlist profile in **both** Radarr and Sonarr, "unmonitor deleted files", and the watchlist's `.env` through the apps' APIs. It's safe to re-run: `sudo python3 /opt/arr/setup.py` (sudo because it writes the watchlist's `.env`).
-- **Space back after deleting:** [pi/arr/reclaim.py](../pi/arr/reclaim.py), deployed to `/opt/arr`. Normally there's nothing for it to do (Radarr and Sonarr remove finished torrents); a safety net for upendra's crontab, hourly: `17 * * * * python3 /opt/arr/reclaim.py --apply >> /opt/arr/reclaim.log 2>&1`. First run 2026-10-18 freed 1.2 GB (Nosferatu, deleted in Jellyfin). It keeps a torrent that was never imported, is still in an app's queue, or still has a file in the library.
-- **qBittorrent** skips its password for requests from the stack's Docker network (`172.20.0.0/16`), so the apps need no password for it. Its web page and the three apps listen on the Pi only.
+- **Wiring:** [pi/arr/setup.py](../pi/arr/setup.py) sets up, through the apps' APIs: the root folders, renaming, the download client, the indexer, the Prowlarr links, the Watchlist profile and custom formats in **both** Radarr and Sonarr, "unmonitor deleted files", qBittorrent's skipped files, `.!qB` for unfinished files and **no seeding** (ratio 0, then stop), Radarr's webhook, and the watchlist's `.env` (Radarr, Prowlarr and Sonarr addresses and keys). It's safe to re-run: `sudo python3 /opt/arr/setup.py` (sudo because it writes the watchlist's `.env`).
+- **Space back after deleting:** [pi/arr/reclaim.py](../pi/arr/reclaim.py), deployed to `/opt/arr`. Normally there's nothing for it to do (Radarr and Sonarr remove finished torrents); a safety net for upendra's crontab, hourly (**not installed yet**): `17 * * * * python3 /opt/arr/reclaim.py --apply >> /opt/arr/reclaim.log 2>&1`. First run 2026-10-18 freed 1.2 GB (Nosferatu, deleted in Jellyfin). It keeps a torrent that was never imported, is still in an app's queue, or still has a file in the library.
+- **qBittorrent** skips its password for requests from the stack's Docker network (`172.20.0.0/16`), so the apps need no password for it. Its web page and the three apps listen on the Pi only. It doesn't seed: each torrent stops when complete, and Radarr/Sonarr remove it after importing.
+- **API keys** are in each app's `config.xml` under `/opt/arr`; the scripts read them from there. Never print them.
 - **Logins:** the first time you open Radarr, Sonarr or Prowlarr, it asks you to choose a login; set *Authentication required* to *Disabled for local addresses*, and create your own username and password.
 
-To open the web pages from the laptop, tunnel through SSH, then browse to `http://localhost:<port>`:
+To open the web pages from the laptop, tunnel through SSH (leave the window open while you use them), then browse to `http://localhost:<port>`. Changes made there apply at once; a change to Prowlarr's indexers reaches Radarr and Sonarr within seconds (full sync):
 
 ```powershell
 & "C:\Program Files\Git\usr\bin\ssh.exe" -N -o HostKeyAlias=pieasypieces -L 9696:127.0.0.1:9696 -L 7878:127.0.0.1:7878 -L 8989:127.0.0.1:8989 -L 8085:127.0.0.1:8085 upendra@192.168.1.40
@@ -322,6 +353,8 @@ To open the web pages from the laptop, tunnel through SSH, then browse to `http:
 
 - **Converting video:** the Pi can manage about one 1080p conversion at a time. Files the TV plays directly are always best.
 - **Wi-Fi:** the Pi's built-in Wi-Fi, plus both machines sharing the air, limits syncing to about 5 MB/s, even with a strong 5 GHz signal.
+- **Legal sources only:** the *arr pipeline finds public-domain and freely licensed titles. Studio films won't turn up; the watchlist tells you where to stream or rent them instead.
+- **TV:** Sonarr can't search the Internet Archive by episode; episodes have to be found and pushed to it by hand.
 - **SD card:** everything, including the risky-business prod database, lives on the SD card for now.
 
 Planned improvements are in the [roadmap](roadmap.md).

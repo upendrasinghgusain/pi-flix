@@ -27,5 +27,10 @@ On the Pi, `/opt/watchlist` holds `compose.yaml`, `Dockerfile`, `app/` (the publ
 | `Availability.cs` | The rules for *available*: watchable at home anywhere in the world |
 | `Tmdb/TmdbClient.cs` | Search, details, release dates and watch providers |
 | `Access/CloudflareAccess.cs` | Checks Cloudflare Access's signed token on every request |
-| `Data/` | SQLite: items and chat history |
-| `wwwroot/` | The installable web app: chat and list |
+| `Access/Hooks.cs` | Checks the password on Radarr's webhook calls |
+| `Alerts/` | The alert rules, and the background job: daily check, pushes, and the pipeline check every 15 minutes |
+| `Radarr/` | Sends films to Radarr, follows them by webhook, deletes files; the daily catch-up |
+| `Pipeline/` | The Status tab: reads Prowlarr, Radarr and Sonarr, classifies indexer failures, alerts on anything broken |
+| `Push/` | Web Push: signing keys and sending |
+| `Data/` | SQLite: items, chat history, alerts, push devices, meta |
+| `wwwroot/` | The installable web app: chat, list and Status |

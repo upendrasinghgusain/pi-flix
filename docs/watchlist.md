@@ -1,6 +1,6 @@
 # Watchlist: spec
 
-Status: **build steps 1–3 deployed** at `chat.upendragusain.co.uk`, plus **downloading through Radarr** (2026-10-17; see [Downloading](#downloading)). Code in [services/watchlist](../services/watchlist/). Written 2026-10-17. The "how it works now" story is in [media-server.md](media-server.md); this stays as the design record.
+Status: **build steps 1–3 deployed** at `chat.upendragusain.co.uk`, plus **downloading through Radarr** (2026-10-17; see [Downloading](#downloading)) and the **Status tab** for the download pipeline (2026-10-18; see [The Status tab](#the-status-tab)). "In your library" comes from Radarr, not from Jellyfin's API (build step 4 isn't done). Code in [services/watchlist](../services/watchlist/). Written 2026-10-17, updated 2026-10-18. The "how it works now" story is in [media-server.md](media-server.md); this stays as the design record.
 
 ## 1. Purpose
 
@@ -23,7 +23,8 @@ flowchart LR
             CHK[Release checker<br/>scheduled]
             DB[(SQLite)]
         end
-        JF[Jellyfin]
+        RA[Radarr]
+        ARR[Prowlarr, Sonarr]
     end
     OAI[OpenAI<br/>model + speech-to-text]
     TMDB[TMDb<br/>titles, dates and services<br/>in every country]
@@ -33,15 +34,18 @@ flowchart LR
     CHAT --> OAI
     CHAT --> TMDB
     CHAT --> DB
+    CHAT -- "films to download" --> RA
+    RA -- "webhook: grabbed, in library, deleted" --> CHAT
     CHK --> DB
     CHK --> TMDB
-    CHK -- "already in library?" --> JF
+    CHK -- "Status tab: read-only" --> ARR
+    CHK --> RA
     CHK --> PUSH --> UI
 ```
 
 | Part | What it does |
 | --- | --- |
-| **Chat app** | A web page you install to your phone's home screen (a PWA), also usable on the laptop. It has two screens: the **chat**, with a mic button, and the **list**, where you can see and edit everything saved. It receives push alerts even when closed. |
+| **Chat app** | A web page you install to your phone's home screen (a PWA), also usable on the laptop. It has three screens: the **chat**, with a mic button; the **list**, where you can see and edit everything saved; and **Status**, the health of the download pipeline. It receives push alerts even when closed. |
 | **Chat + agent** | Takes your message (text, or voice turned into text), and has an OpenAI model with a few **tools** decide what you want and which title you mean. |
 | **Release checker** | Runs on a schedule, looks up every saved title, compares the result with the last check, and sends an alert when something changes. |
 | **SQLite database** | The watchlist itself, plus what the checker saw last time. |
@@ -73,16 +77,31 @@ The rules:
 
 Every **film** on the list is downloaded, through the *arr stack on the Pi (see [media-server.md](media-server.md#the-arr-pipeline-public-domain-titles)), which uses **legal indexers only**. TV isn't downloaded yet.
 
-1. Adding a film also adds it to **Radarr** (quality profile *Watchlist*, library `/data/library/movies`) and starts a search. Saying it again for a film already on the list re-sends it if it never reached Radarr.
-2. Radarr searches through Prowlarr, picks a release, and hands it to the Pi's qBittorrent. When it's done, Radarr hard-links it into the library, which Jellyfin shows.
+1. Adding a film also adds it to **Radarr** (quality profile *Watchlist*, library `/data/library/movies`) and starts a search. Saying it again for a film already on the list re-sends it: a fresh search if Radarr is still looking, or, for a film you deleted, Radarr is told to want it again (re-monitored) and searches.
+2. Radarr searches through Prowlarr, picks a release, and hands it to the Pi's qBittorrent. When it's done, qBittorrent stops it (no seeding), Radarr hard-links it into the library, which Jellyfin shows, and then removes the torrent and its data. The library file is the only copy.
 3. **Radarr's webhook** tells the watchlist what happened, and the card moves along: *looking for a copy* → *downloading* → **in library**, with a push alert "Downloaded: it's in your library."
-4. **Safety nets:** if Radarr can't be reached, the film is marked *sending to Radarr* and re-sent every 5 minutes. The daily check asks Radarr about every film still in progress, in case a webhook was missed.
+4. **Safety nets:** if Radarr can't be reached, the film is marked *sending to Radarr* and re-sent every 5 minutes. The daily check asks Radarr about every film still in progress, in case a webhook was missed, and searches again for those still *looking for a copy* (the Internet Archive often times out). A film Radarr no longer wants (you deleted it) is settled instead, never searched.
 5. **Removing things:**
    - **Delete** (or "remove …" in the chat) takes the card off the list. A film still being looked for or downloading is cancelled in Radarr and removed from qBittorrent. A film already downloaded **stays** in the library. **Undo** sends it to Radarr again.
    - **Delete file** (only on downloaded films; tap twice) deletes the film in Radarr with its library file, so Jellyfin drops it. The card stays, back to release tracking. Only from the list, never from the chat.
+   - **Deleting the file in Jellyfin** (or in Radarr): Radarr unmonitors the film and its webhook takes the card out of the download flow, back to release tracking. It isn't searched for or downloaded again unless you ask for it.
    - **Wrong title** drops the old film from Radarr, with its file, and sends the right one.
    - Deleting a film in Radarr itself puts its card back to release tracking.
-   - The torrent's own copy (in `/srv/data/torrents`) stays while qBittorrent seeds it; remove the torrent in qBittorrent to free that space. (A seeding limit that clears these automatically is a possible later step.)
+   - Space: nothing seeds, so deleting the library file frees the space at once.
+
+### The Status tab
+
+The third screen: the health of the whole download pipeline, not just Prowlarr's dashboard. Checked every 15 minutes in the background (and when you open the tab or press **Refresh**), read-only.
+
+| Area | Checks |
+| --- | --- |
+| **Indexers** (Prowlarr) | Per indexer: searches and failures in the last 24 hours (Prowlarr's history and log), whether it's paused and until when. Each failure is sorted into a kind: timeouts, rate limits, network and server errors are **transient** (a warning; Prowlarr's back-off retries them); a refused login or API key, a Cloudflare block or a broken definition is **persistent** (broken), and so is failing on and off for over a day. Prowlarr's other health warnings. |
+| **Radarr**, **Sonarr** | Health (minus the expected "RSS sync" warning), a live test of the download client (qBittorrent), stuck imports in the queue, the last import, and whether the app has every indexer Prowlarr syncs (missing, added by hand, or left over). |
+
+- **Each row** is OK, *needs a look* (warning) or *broken*. The tab shows a dot when anything isn't OK.
+- **Test now** (on a paused or failing indexer) asks Prowlarr to test it; a pass lifts the pause. A slow test answers "still waiting" after 80 s and carries on in the background.
+- **Alerts:** anything *broken* for 30 minutes sends one push alert, and another when it's fixed. Warnings never alert. Quiet hours apply.
+- **Retrying is deliberately gentle:** Prowlarr's own back-off, the Test now button, and the daily re-search. Nothing hammers archive.org.
 
 ### Asking
 
@@ -158,7 +177,7 @@ Alerts arrive as phone notifications. Tapping one opens that title's card on the
 | TMDb release dates, all regions | Cinema (types 2 and 3), digital (4), disc (5), per country |
 | TMDb watch providers, all regions | Streaming (`flatrate`), `free` and `ads` services, `rent`, `buy`, per country (one call returns every country) |
 | TMDb TV details | New seasons announced, season premiere dates, show ended or cancelled |
-| Jellyfin API | Whether the title is already in your library (matched by TMDb ID) |
+| Radarr | Whether a film is in your library (its webhook, plus the daily catch-up). Jellyfin's API (planned, build step 4) isn't used yet, so TV and films you copied in yourself don't show as *in library* |
 
 ### When
 
@@ -233,7 +252,7 @@ One SQLite file at `/opt/watchlist/data/watchlist.db`.
 | `alerts` | Per item: kind, message, created, sent. Unsent ones wait through quiet hours. |
 | `messages` | Chat history, by conversation (one per opening of the app). The agent sees the last few of the current one; the rest is kept only for the daily limit's count |
 | `push_subscriptions` | The devices that receive alerts |
-| `meta` | The Web Push signing key (made on first start) and when the daily check last ran |
+| `meta` | The Web Push signing key (made on first start), when the daily check last ran, and the pipeline problems already alerted on (`pipeline_problems`) |
 
 Settings live in `/opt/watchlist/data/settings.json` (example: [pi/watchlist/settings.example.json](../pi/watchlist/settings.example.json)), and changes apply without a restart:
 - `MyServices`: your UK subscriptions, by name as TMDb spells them, e.g. "Amazon Prime Video", "Disney Plus". A name matches any provider that starts with it, so "Netflix" also covers "Netflix Standard with Ads";
@@ -259,9 +278,11 @@ Settings live in `/opt/watchlist/data/settings.json` (example: [pi/watchlist/set
 - **Secrets** go in `/opt/watchlist/.env` on the Pi (mode 600), never in the repo and never printed:
   - the OpenAI key;
   - the TMDb read token;
-  - the Jellyfin API key;
   - the Cloudflare team name and application ID;
-  - the app's own address, which Web Push sends as the sender.
+  - the app's own address, which Web Push sends as the sender;
+  - Radarr's address, API key and webhook secret, and Prowlarr's and Sonarr's addresses and API keys (all filled in by `pi/arr/setup.py`).
+
+  The full list is [pi/watchlist/.env.example](../pi/watchlist/.env.example).
 
   The Web Push signing key is made by the app on first start and kept in the database.
 - **Credit:** TMDb's terms ask apps to credit TMDb, and the streaming data comes from **JustWatch**, which must be credited too. Both go in the app's footer.
@@ -275,13 +296,13 @@ Settings live in `/opt/watchlist/data/settings.json` (example: [pi/watchlist/set
 | Image | Built for arm64, base image pinned to an exact version at least two weeks old |
 | On the Pi | `/opt/watchlist`: `compose.yaml`, `.env`, `data/`. Copy of `compose.yaml` in `pi/watchlist/`. |
 | Runs as | User 1000, limited to 1 CPU, so Jellyfin and the website keep theirs |
-| Network | The *arr stack's Docker network (`arr_arr`), so it and Radarr can call each other; published on the Pi's `127.0.0.1:8190` only, for the tunnel. Jellyfin is at `host.docker.internal:8096` |
+| Network | The *arr stack's Docker network (`arr_arr`), so it can call Radarr, Prowlarr and Sonarr, and Radarr's webhook can call it; published on the Pi's `127.0.0.1:8190` only, for the tunnel. Jellyfin would be at `host.docker.internal:8096` (not used yet) |
 | Backups | `data/` joins the off-Pi backups (roadmap item 5) |
 | Health | A `/health` page for the container, and errors logged to the container log |
 
 ## 9. Out of scope
 
-- **Downloading TV.** Films go to Radarr (see [Downloading](#downloading)); shows could go to Sonarr the same way later. MediaTidy keeps filing whatever arrives in `C:\qBittorrent` on the laptop, however it got there.
+- **Downloading TV.** Films go to Radarr (see [Downloading](#downloading)). Shows could go to Sonarr the same way, but Sonarr can't search the Internet Archive by episode (it asks for "S01E01", which archive names don't contain), so automatic TV downloads would find nothing; episodes are pushed to Sonarr by hand for now ([media-server.md](media-server.md#the-arr-pipeline-public-domain-titles)). MediaTidy keeps filing whatever arrives in `C:\qBittorrent` on the laptop.
 - **Recommendations** ("what should I watch?"). Possibly later, using TMDb's recommendations for titles you marked watched.
 - **Native Android app, Telegram, Trakt sync:** possible later front ends or mirrors that talk to the same service. Not needed for the first version.
 
@@ -295,7 +316,7 @@ Settings live in `/opt/watchlist/data/settings.json` (example: [pi/watchlist/set
    - the Cloudflare hostname and Access.
 2. **The checker:** daily checks, filling in each card's services and dates, `waiting` → `available`, alerts with Web Push, and quiet hours. Snooze, notes and "check now" on the list.
 3. **Voice:** the mic button, speech-to-text, and the edit-before-send box.
-4. **Jellyfin:** detecting "in your library", plus the Watched / Remove / Snooze buttons on alerts.
+4. **Jellyfin:** detecting "in your library" for everything (films from Radarr already are), plus the Watched / Remove / Snooze buttons on alerts. *Not built yet.*
 5. **TV:** new seasons and premiere dates.
 6. **Extras:**
    - the weekly digest;
@@ -310,4 +331,4 @@ Settings live in `/opt/watchlist/data/settings.json` (example: [pi/watchlist/set
 3. **Keys you'll need to create:**
    - an OpenAI API key, with a spending limit set;
    - a TMDb account and API read token;
-   - a Jellyfin API key (Dashboard → API Keys).
+   - a Jellyfin API key (Dashboard → API Keys), once build step 4 is started.
