@@ -119,6 +119,65 @@ public sealed class DownloadsTests : IDisposable
     }
 
     [Fact]
+    public async Task A_film_deleted_in_jellyfin_is_not_searched_for_again()
+    {
+        var (item, _, _) = await AddWeapons();
+        var film = _world.Radarr.Films.Values.Single();
+        await _world.Downloads.HandleAsync(Event("Download", film));
+
+        // Radarr notices the file is gone, unmonitors the film and calls the webhook.
+        film.HasFile = false;
+        film.Monitored = false;
+        await _world.Downloads.HandleAsync(Event("MovieFileDelete", film, deleteReason: "missingFromDisk"));
+        _world.Radarr.Requests.Clear();
+        await _world.Downloads.ReconcileAsync(default);
+
+        var after = (await _world.Items.GetAsync(item.Id))!;
+        Assert.Null(after.DownloadState);
+        Assert.Equal(Statuses.Available, after.Status);
+        Assert.DoesNotContain("POST command", _world.Radarr.Requests);
+    }
+
+    [Fact]
+    public async Task A_card_left_searching_for_an_unmonitored_film_is_settled_not_searched()
+    {
+        var (item, _, _) = await AddWeapons();
+        _world.Radarr.Films.Values.Single().Monitored = false;
+        _world.Radarr.Requests.Clear();
+
+        await _world.Downloads.ReconcileAsync(default);
+
+        Assert.Null((await _world.Items.GetAsync(item.Id))!.DownloadState);
+        Assert.DoesNotContain("POST command", _world.Radarr.Requests);
+    }
+
+    [Fact]
+    public async Task Asking_again_for_a_deleted_film_monitors_it_and_searches()
+    {
+        await _world.Items.AddAsync(new Tmdb.TitleRef(WeaponsId, "movie", "Weapons", 2025, null, null), "watched it once");
+        var film = _world.Radarr.Has(WeaponsId, hasFile: false, monitored: false);
+
+        var (item, outcome, _) = await AddWeapons();
+
+        Assert.Equal(AddOutcome.AlreadyThere, outcome);
+        Assert.True(film.Monitored);
+        Assert.Equal(["GET movie?tmdbId=1078605", "PUT movie/editor", "POST command"], _world.Radarr.Requests);
+        Assert.Equal(DownloadStates.Searching, item.DownloadState);
+    }
+
+    [Fact]
+    public async Task Asking_again_while_radarr_is_still_looking_searches_again()
+    {
+        await AddWeapons();
+        _world.Radarr.Requests.Clear();
+
+        await AddWeapons();
+
+        Assert.Contains("POST command", _world.Radarr.Requests);
+        Assert.Single(_world.Radarr.Films);
+    }
+
+    [Fact]
     public async Task Deleting_the_film_in_radarr_puts_the_card_back()
     {
         var (item, _, _) = await AddWeapons();

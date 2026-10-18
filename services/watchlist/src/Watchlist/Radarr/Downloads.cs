@@ -24,7 +24,8 @@ public sealed class Downloads(RadarrClient radarr, ItemStore items, AlertStore a
     /// </summary>
     public async Task<Item> SendAsync(Item item, CancellationToken ct)
     {
-        if (!IsOn || item.MediaType != MediaTypes.Movie || item.DownloadState is not (null or DownloadStates.Pending))
+        // Searching too: asking for a film again sends a fresh search.
+        if (!IsOn || item.MediaType != MediaTypes.Movie || item.DownloadState is not (null or DownloadStates.Pending or DownloadStates.Searching))
             return item;
         try
         {
@@ -35,6 +36,9 @@ public sealed class Downloads(RadarrClient radarr, ItemStore items, AlertStore a
             }
             else if (movie is not null)
             {
+                // Asked for again after deleting it: Radarr unmonitored it then.
+                if (!movie.Monitored)
+                    await radarr.MonitorAsync(movie.Id, ct);
                 await radarr.SearchAsync(movie.Id, ct);
                 await items.SetDownloadAsync(item.Id, DownloadStates.Searching, movie.Id);
             }
@@ -119,8 +123,10 @@ public sealed class Downloads(RadarrClient radarr, ItemStore items, AlertStore a
             case "Download":
                 await ImportedAsync(item, e.Movie.Id, alert: item.DownloadState != DownloadStates.Imported);
                 break;
+            // You deleted the file (in Jellyfin, say): done with it, so no more searching.
+            // Radarr unmonitors it too. Asking for it again in the chat brings it back.
             case "MovieFileDelete" when e.DeleteReason != "upgrade":
-                await items.SetDownloadAsync(item.Id, DownloadStates.Searching, e.Movie.Id);
+                await items.SetDownloadAsync(item.Id, null, e.Movie.Id);
                 await LeaveLibraryAsync(item);
                 break;
             case "MovieDelete":
@@ -157,6 +163,8 @@ public sealed class Downloads(RadarrClient radarr, ItemStore items, AlertStore a
                     await items.SetDownloadAsync(item.Id, null, null);
                 else if (movie.HasFile)
                     await ImportedAsync(item, movie.Id, alert: true);
+                else if (!movie.Monitored)
+                    await items.SetDownloadAsync(item.Id, null, movie.Id);   // deleted; see HandleAsync
                 else if (await radarr.IsDownloadingAsync(movie.Id, ct))
                 {
                     if (item.DownloadState != DownloadStates.Downloading)

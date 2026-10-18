@@ -60,8 +60,10 @@ def rename_on(app, flag):
 # made, so they never finish, and Radarr waits for the whole torrent before importing.
 # The .ogv is a second, lower-quality copy of the video.
 QBT = "http://127.0.0.1:8085/api/v2"
+# Unfinished files are named ".!qB", so Radarr and Sonarr never import one: a skipped file can be
+# partly on disk (see unstick.py), and Sonarr once imported a half-fetched .ogv over the .mp4.
 SKIP = ["*_meta.xml", "*_meta.sqlite", "*_files.xml", "__ia_thumb.jpg", "*.ogv", "*.gif", "*.png", "*.asr.js", "*.asr.srt"]
-prefs = {"excluded_file_names_enabled": True, "excluded_file_names": "\n".join(SKIP)}
+prefs = {"excluded_file_names_enabled": True, "excluded_file_names": "\n".join(SKIP), "incomplete_files_ext": True}
 urllib.request.urlopen(urllib.request.Request(f"{QBT}/app/setPreferences",
                        data=urllib.parse.urlencode({"json": json.dumps(prefs)}).encode()), timeout=30)
 print("qbittorrent: Internet Archive extras skipped")

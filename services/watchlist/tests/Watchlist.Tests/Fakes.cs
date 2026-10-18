@@ -62,6 +62,7 @@ public sealed class FakeRadarr : HttpMessageHandler
         public int TmdbId { get; init; }
         public bool HasFile { get; set; }
         public bool InQueue { get; set; }
+        public bool Monitored { get; set; } = true;
         public JsonObject Added { get; init; } = [];
     }
 
@@ -70,9 +71,9 @@ public sealed class FakeRadarr : HttpMessageHandler
     public bool Down { get; set; }
     private int _nextId = 1;
 
-    public Film Has(int tmdbId, bool hasFile = false)
+    public Film Has(int tmdbId, bool hasFile = false, bool monitored = true)
     {
-        var film = new Film { Id = _nextId++, TmdbId = tmdbId, HasFile = hasFile };
+        var film = new Film { Id = _nextId++, TmdbId = tmdbId, HasFile = hasFile, Monitored = monitored };
         Films[film.Id] = film;
         return film;
     }
@@ -97,6 +98,7 @@ public sealed class FakeRadarr : HttpMessageHandler
             ("DELETE", ["queue", var id]) when Films.TryGetValue(int.Parse(id), out var queued) && queued.InQueue => Dequeue(queued),
             ("POST", ["movie"]) => Json(Node(Add((JsonObject)JsonNode.Parse(await request.Content!.ReadAsStringAsync(cancellationToken))!))),
             ("POST", ["command"]) => Json(new JsonObject { ["id"] = 1 }),
+            ("PUT", ["movie", "editor"]) => Monitor((JsonObject)JsonNode.Parse(await request.Content!.ReadAsStringAsync(cancellationToken))!),
             ("DELETE", ["movie", var id]) => Films.Remove(int.Parse(id)) ? new HttpResponseMessage(HttpStatusCode.OK) : new HttpResponseMessage(HttpStatusCode.NotFound),
             _ => new HttpResponseMessage(HttpStatusCode.NotFound),
         };
@@ -109,13 +111,20 @@ public sealed class FakeRadarr : HttpMessageHandler
         return film;
     }
 
+    private HttpResponseMessage Monitor(JsonObject body)
+    {
+        foreach (var id in body["movieIds"]!.AsArray())
+            Films[(int)id!].Monitored = (bool)body["monitored"]!;
+        return new HttpResponseMessage(HttpStatusCode.OK);
+    }
+
     private static HttpResponseMessage Dequeue(Film film)
     {
         film.InQueue = false;
         return new HttpResponseMessage(HttpStatusCode.OK);
     }
 
-    private static JsonNode Node(Film f) => new JsonObject { ["id"] = f.Id, ["tmdbId"] = f.TmdbId, ["hasFile"] = f.HasFile };
+    private static JsonNode Node(Film f) => new JsonObject { ["id"] = f.Id, ["tmdbId"] = f.TmdbId, ["hasFile"] = f.HasFile, ["monitored"] = f.Monitored };
 
     private static HttpResponseMessage Json(JsonNode node) =>
         new(HttpStatusCode.OK) { Content = new StringContent(node.ToJsonString(), Encoding.UTF8, "application/json") };

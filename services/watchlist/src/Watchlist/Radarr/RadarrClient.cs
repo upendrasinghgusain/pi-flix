@@ -5,8 +5,9 @@ using Microsoft.Extensions.Options;
 
 namespace Watchlist.Radarr;
 
-/// <summary>What Radarr has for one film.</summary>
-public sealed record RadarrMovie(int Id, int TmdbId, bool HasFile);
+/// <summary>What Radarr has for one film. Unmonitored: Radarr won't grab it (it does that itself
+/// when you delete a downloaded film, e.g. in Jellyfin).</summary>
+public sealed record RadarrMovie(int Id, int TmdbId, bool HasFile, bool Monitored = true);
 
 /// <summary>
 /// The few Radarr API calls the watchlist needs: add a film (and search for it), see how it's
@@ -62,6 +63,13 @@ public sealed class RadarrClient
         return Movie((await response.Content.ReadFromJsonAsync<JsonObject>(ct))!);
     }
 
+    /// <summary>Makes Radarr want the film again, so a search can grab it.</summary>
+    public async Task MonitorAsync(int id, CancellationToken ct)
+    {
+        using var response = await _http.PutAsJsonAsync("movie/editor", new { movieIds = new[] { id }, monitored = true }, ct);
+        await EnsureSuccessAsync(response, ct);
+    }
+
     public async Task SearchAsync(int id, CancellationToken ct)
     {
         using var response = await _http.PostAsJsonAsync("command", new { name = "MoviesSearch", movieIds = new[] { id } }, ct);
@@ -107,7 +115,7 @@ public sealed class RadarrClient
     }
 
     private static RadarrMovie Movie(JsonObject m) =>
-        new((int)m["id"]!, (int)m["tmdbId"]!, (bool?)m["hasFile"] ?? false);
+        new((int)m["id"]!, (int)m["tmdbId"]!, (bool?)m["hasFile"] ?? false, (bool?)m["monitored"] ?? true);
 
     private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken ct)
     {
