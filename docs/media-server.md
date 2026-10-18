@@ -290,7 +290,7 @@ flowchart LR
 To open the web pages from the laptop, tunnel through SSH, then browse to `http://localhost:<port>`:
 
 ```powershell
-& "C:\Program Files\Git\usr\bin\ssh.exe" -N -L 9696:127.0.0.1:9696 -L 7878:127.0.0.1:7878 -L 8989:127.0.0.1:8989 -L 8085:127.0.0.1:8085 upendra@192.168.1.40
+& "C:\Program Files\Git\usr\bin\ssh.exe" -N -o HostKeyAlias=pieasypieces -L 9696:127.0.0.1:9696 -L 7878:127.0.0.1:7878 -L 8989:127.0.0.1:8989 -L 8085:127.0.0.1:8085 upendra@192.168.1.40
 ```
 
 | App | Port |
