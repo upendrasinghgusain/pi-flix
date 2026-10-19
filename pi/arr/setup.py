@@ -12,13 +12,13 @@ APPS = {
     "prowlarr": ("http://127.0.0.1:9696/api/v1", key("prowlarr")),
 }
 
-def call(app, method, path, body=None):
+def call(app, method, path, body=None, timeout=60):
     base, k = APPS[app]
     req = urllib.request.Request(base + path, method=method,
                                  data=None if body is None else json.dumps(body).encode(),
                                  headers={"X-Api-Key": k, "Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=60) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             raw = r.read()
             return json.loads(raw) if raw else None
     except urllib.error.HTTPError as e:
@@ -90,7 +90,8 @@ else:
     ia = next(s for s in call("prowlarr", "GET", "/indexer/schema") if s.get("definitionName") == "internetarchive")
     ia["enable"] = True
     ia["appProfileId"] = 1
-    call("prowlarr", "POST", "/indexer?forceSave=true", ia)
+    # Prowlarr tests it before saving, and archive.org answers Prowlarr slowly (40-95 s).
+    call("prowlarr", "POST", "/indexer?forceSave=true", ia, timeout=300)
     print("prowlarr: added Internet Archive")
 
 # No RSS checks: for the Internet Archive that's "every film, newest first", which takes ~30 s
