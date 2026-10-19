@@ -1,6 +1,6 @@
 # pi-flix: notes for coding agents (Codex, Claude Code)
 
-Home media server on the Raspberry Pi that also hosts risky-business. Everything runs in Docker containers on the Pi; the laptop only administers it. Read [docs/journey.md](docs/journey.md) for the one-page picture, [docs/media-server.md](docs/media-server.md) for how everything fits, and [docs/roadmap.md](docs/roadmap.md) for what's next. Keep them up to date when the setup changes: media-server.md is the story of how it works *now*.
+Home media server on the Raspberry Pi that also hosts risky-business. Everything runs in Docker containers on the Pi; the laptop only administers it. Read [docs/media-server-workflow.svg](docs/media-server-workflow.svg) for the one-page picture, [docs/media-server.md](docs/media-server.md) for how everything fits, and [docs/roadmap.md](docs/roadmap.md) for what's next. Keep them up to date when the setup changes: media-server.md is the story of how it works *now*.
 
 ## Machines and access
 

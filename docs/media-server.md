@@ -2,27 +2,11 @@
 
 How films and shows get to the Sony TV, and how they leave again. At each step: what happens, who proves what to whom, and what had to be set up beforehand.
 
-Set up 2026-10-16. Everything runs in Docker containers on the Pi. Home network only, by choice. For the one-page picture, see **[journey.md](journey.md)**.
+Set up 2026-10-16. The media services run on the Pi. For the one-page picture, see the workflow diagram below.
+
+![Pi-flix media workflow diagram](media-server-workflow.svg)
 
 ## The cast
-
-```mermaid
-flowchart LR
-    PHONE[Phone<br/>watchlist app]
-    subgraph PI[Raspberry Pi 5 - pieasypieces]
-        WL[watchlist container]
-        ARR["*arr stack<br/>Prowlarr, Radarr, Sonarr, qBittorrent"]
-        L["/srv/data/library"]
-        JF[Jellyfin container<br/>port 8096]
-    end
-    TV[Sony BRAVIA<br/>Jellyfin app]
-    NET[(Internet Archive,<br/>TMDb / OMDb)]
-
-    PHONE -- "HTTPS via Cloudflare Access" --> WL --> ARR --> L --> JF
-    ARR -- "search, download" --> NET
-    JF -- "posters and details<br/>outbound HTTPS" --> NET
-    TV -- "home Wi-Fi, HTTP 8096<br/>Jellyfin login" --> JF
-```
 
 | Who | What it is | Where |
 | --- | --- | --- |

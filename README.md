@@ -15,7 +15,7 @@ Everything runs in Docker containers on the Pi. Home network only. Watching need
 
 ## Start here
 
-- **[docs/journey.md](docs/journey.md)**: the whole journey on one page, as a numbered diagram.
+- **[docs/media-server-workflow.svg](docs/media-server-workflow.svg)**: the media workflow diagram.
 - **[docs/media-server.md](docs/media-server.md)**: how it works now, every step and concept, who can access what, and day-to-day tasks.
 - **[docs/watchlist.md](docs/watchlist.md)**: the chat app's design: adding titles, release alerts, downloading through Radarr, the Status tab.
 - **[docs/roadmap.md](docs/roadmap.md)**: what's next (Ethernet, bigger storage, backups, remote access, photos and documents).
