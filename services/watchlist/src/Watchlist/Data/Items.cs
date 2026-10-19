@@ -19,12 +19,12 @@ public static class Statuses
 }
 
 /// <summary>
-/// Where a film is in Radarr. Null: not sent (TV, or Radarr is off). Imported films also move
-/// to the in_library status.
+/// Where a film is in Radarr, or a show in Sonarr. Null: not sent (or the app is off). Imported
+/// titles also move to the in_library status; for a show, that's once any episode is in.
 /// </summary>
 public static class DownloadStates
 {
-    /// <summary>Radarr couldn't be reached; sent again on the next tick.</summary>
+    /// <summary>Radarr or Sonarr couldn't be reached; sent again on the next tick.</summary>
     public const string Pending = "pending";
     public const string Searching = "searching";
     public const string Downloading = "downloading";
@@ -52,6 +52,7 @@ public sealed class Item
     public string? AvailabilityJson { get; set; }
     public string? DownloadState { get; set; }
     public int? RadarrId { get; set; }
+    public int? SonarrId { get; set; }
 }
 
 public enum AddOutcome { Added, Revived, AlreadyThere }
@@ -129,7 +130,7 @@ public sealed class ItemStore(Database database, TimeProvider time)
             UPDATE items SET tmdb_id = @TmdbId, media_type = @MediaType, title = @Title, year = @Year,
                              poster_path = @PosterPath, overview = @Overview, status = 'waiting',
                              availability_json = NULL, last_checked_at = NULL,
-                             download_state = NULL, radarr_id = NULL, updated_at = @now
+                             download_state = NULL, radarr_id = NULL, sonarr_id = NULL, updated_at = @now
             WHERE id = @id
             """, new { id, title.TmdbId, title.MediaType, title.Title, title.Year, title.PosterPath, title.Overview, now = time.GetUtcNow() });
         return true;
@@ -164,12 +165,28 @@ public sealed class ItemStore(Database database, TimeProvider time)
             new { id, state, radarrId, now = time.GetUtcNow() });
     }
 
-    /// <summary>Items with any of these download states, oldest first.</summary>
-    public async Task<IReadOnlyList<Item>> WithDownloadStateAsync(params string[] states)
+    /// <summary>Records where the show is in Sonarr. Null clears it.</summary>
+    public async Task SetTvDownloadAsync(long id, string? state, int? sonarrId)
+    {
+        using var db = database.Open();
+        await db.ExecuteAsync("UPDATE items SET download_state = @state, sonarr_id = @sonarrId, updated_at = @now WHERE id = @id",
+            new { id, state, sonarrId, now = time.GetUtcNow() });
+    }
+
+    public async Task<Item?> FindBySonarrIdAsync(int sonarrId)
+    {
+        using var db = database.Open();
+        return await db.QueryFirstOrDefaultAsync<Item>(
+            "SELECT * FROM items WHERE sonarr_id = @sonarrId AND media_type = 'tv'", new { sonarrId });
+    }
+
+    /// <summary>Items of one media type with any of these download states, oldest first.</summary>
+    public async Task<IReadOnlyList<Item>> WithDownloadStateAsync(string mediaType, params string[] states)
     {
         using var db = database.Open();
         return (await db.QueryAsync<Item>(
-            "SELECT * FROM items WHERE download_state IN @states AND status <> 'removed' ORDER BY id", new { states })).AsList();
+            "SELECT * FROM items WHERE media_type = @mediaType AND download_state IN @states AND status <> 'removed' ORDER BY id",
+            new { mediaType, states })).AsList();
     }
 
     /// <summary>Records a release check, and moves between waiting and available when the result says so.</summary>

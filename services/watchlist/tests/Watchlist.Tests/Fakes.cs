@@ -7,6 +7,7 @@ using Microsoft.Extensions.Time.Testing;
 using Watchlist.Alerts;
 using Watchlist.Data;
 using Watchlist.Radarr;
+using Watchlist.Sonarr;
 using Watchlist.Tmdb;
 
 namespace Watchlist.Tests;
@@ -133,6 +134,127 @@ public sealed class FakeRadarr : HttpMessageHandler
         new(new HttpClient(this), Options.Create(configured ? new RadarrOptions { Url = "http://radarr:7878", ApiKey = "test-key" } : new RadarrOptions()));
 }
 
+/// <summary>
+/// A small in-memory Sonarr: shows added through the API with seasons 0-2 of two episodes each,
+/// a queue, and episode files that tests can "finish". Records every request. Down = every call fails.
+/// </summary>
+public sealed class FakeSonarr : HttpMessageHandler
+{
+    public sealed class Episode
+    {
+        public int Id { get; init; }
+        public int Season { get; init; }
+        public int Number { get; init; }
+        public bool HasFile { get; set; }
+        public bool Monitored { get; set; }
+    }
+
+    public sealed class Show
+    {
+        public int Id { get; init; }
+        public int TvdbId { get; init; }
+        public bool InQueue { get; set; }
+        public List<Episode> Episodes { get; } = [];
+        public JsonObject Added { get; init; } = [];
+
+        public int Files => Episodes.Count(e => e.HasFile);
+        public int Wanted => Episodes.Count(e => e.Monitored || e.HasFile);
+    }
+
+    public Dictionary<int, Show> Shows { get; } = [];
+    public List<string> Requests { get; } = [];
+    public bool Down { get; set; }
+    private int _nextId = 1;
+
+    /// <summary>A show Sonarr already has, every episode monitored, the first <paramref name="files"/> on disk.</summary>
+    public Show Has(int tvdbId, int files = 0)
+    {
+        var show = NewShow(tvdbId, [], monitored: _ => true);
+        foreach (var e in show.Episodes.Take(files))
+            e.HasFile = true;
+        return show;
+    }
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var path = request.RequestUri!.PathAndQuery.Replace("/api/v3/", "");
+        var body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
+        Requests.Add($"{request.Method} {path}" + (body is null ? "" : $" {body}"));
+        if (Down)
+            throw new HttpRequestException("Connection refused");
+
+        var query = System.Web.HttpUtility.ParseQueryString(request.RequestUri.Query);
+        var segments = request.RequestUri.AbsolutePath.Replace("/api/v3/", "").Split('/');
+        return (request.Method.Method, segments) switch
+        {
+            ("GET", ["series", "lookup"]) => Json(new JsonArray(new JsonObject
+            {
+                ["tvdbId"] = int.Parse(query["term"]!.Replace("tvdb:", "")), ["title"] = "Looked up",
+                ["seasons"] = new JsonArray([.. new[] { 0, 1, 2 }.Select(n => (JsonNode)new JsonObject { ["seasonNumber"] = n, ["monitored"] = false })]),
+            })),
+            ("GET", ["series"]) => Json(new JsonArray([.. Shows.Values.Where(s => s.TvdbId == int.Parse(query["tvdbId"]!)).Select(Node)])),
+            ("GET", ["series", var id]) => Shows.TryGetValue(int.Parse(id), out var s) ? Json(Node(s)) : new HttpResponseMessage(HttpStatusCode.NotFound),
+            ("POST", ["series"]) => Json(Node(Add((JsonObject)JsonNode.Parse(body!)!))),
+            ("PUT", ["series", var id]) => Json(JsonNode.Parse(body!)!),
+            ("DELETE", ["series", var id]) => Shows.Remove(int.Parse(id)) ? new HttpResponseMessage(HttpStatusCode.OK) : new HttpResponseMessage(HttpStatusCode.NotFound),
+            ("GET", ["episode"]) => Json(new JsonArray([.. Shows[int.Parse(query["seriesId"]!)].Episodes
+                .Where(e => query["seasonNumber"] is not { } n || e.Season == int.Parse(n))
+                .Select(e => (JsonNode)new JsonObject { ["id"] = e.Id, ["seasonNumber"] = e.Season, ["episodeNumber"] = e.Number, ["hasFile"] = e.HasFile, ["monitored"] = e.Monitored })])),
+            ("PUT", ["episode", "monitor"]) => Monitor((JsonObject)JsonNode.Parse(body!)!),
+            ("GET", ["qualityprofile"]) => Json(JsonNode.Parse("""[{"id": 1, "name": "Any"}, {"id": 4, "name": "Watchlist"}]""")!),
+            // A show's queue entry has the show's id, to keep the fake simple.
+            ("GET", ["queue", "details"]) => Json(new JsonArray([.. Shows.Values.Where(s => s.Id == int.Parse(query["seriesId"]!) && s.InQueue).Select(s => (JsonNode)new JsonObject { ["id"] = s.Id })])),
+            ("DELETE", ["queue", var id]) when Shows.TryGetValue(int.Parse(id), out var queued) && queued.InQueue => Dequeue(queued),
+            ("POST", ["command"]) => Json(new JsonObject { ["id"] = 1 }),
+            _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+        };
+    }
+
+    private Show Add(JsonObject body)
+    {
+        var monitoredSeasons = body["seasons"]!.AsArray().OfType<JsonObject>()
+            .Where(s => (bool)s["monitored"]!).Select(s => (int)s["seasonNumber"]!).ToHashSet();
+        return NewShow((int)body["tvdbId"]!, body, monitored: season => monitoredSeasons.Contains(season));
+    }
+
+    private Show NewShow(int tvdbId, JsonObject added, Func<int, bool> monitored)
+    {
+        var show = new Show { Id = _nextId++, TvdbId = tvdbId, Added = added };
+        foreach (var season in new[] { 0, 1, 2 })
+            for (var number = 1; number <= 2; number++)
+                show.Episodes.Add(new Episode { Id = show.Id * 100 + season * 10 + number, Season = season, Number = number, Monitored = monitored(season) });
+        Shows[show.Id] = show;
+        return show;
+    }
+
+    private HttpResponseMessage Monitor(JsonObject body)
+    {
+        var ids = body["episodeIds"]!.AsArray().Select(i => (int)i!).ToHashSet();
+        foreach (var e in Shows.Values.SelectMany(s => s.Episodes).Where(e => ids.Contains(e.Id)))
+            e.Monitored = (bool)body["monitored"]!;
+        return new HttpResponseMessage(HttpStatusCode.OK);
+    }
+
+    private static HttpResponseMessage Dequeue(Show show)
+    {
+        show.InQueue = false;
+        return new HttpResponseMessage(HttpStatusCode.OK);
+    }
+
+    private static JsonNode Node(Show s) => new JsonObject
+    {
+        ["id"] = s.Id, ["tvdbId"] = s.TvdbId, ["title"] = "Looked up", ["monitored"] = true,
+        ["seasons"] = new JsonArray([.. new[] { 0, 1, 2 }.Select(n => (JsonNode)new JsonObject { ["seasonNumber"] = n, ["monitored"] = n > 0 })]),
+        ["statistics"] = new JsonObject { ["episodeFileCount"] = s.Files, ["episodeCount"] = s.Wanted },
+    };
+
+    private static HttpResponseMessage Json(JsonNode node) =>
+        new(HttpStatusCode.OK) { Content = new StringContent(node.ToJsonString(), Encoding.UTF8, "application/json") };
+
+    public SonarrClient Client(bool configured = true) =>
+        new(new HttpClient(this), Options.Create(configured ? new SonarrOptions { Url = "http://sonarr:8989", ApiKey = "test-key" } : new SonarrOptions()));
+}
+
 /// <summary>A fresh database file per test, plus the services built on it.</summary>
 public sealed class TestWorld : IDisposable
 {
@@ -149,10 +271,13 @@ public sealed class TestWorld : IDisposable
     public AlertOptions AlertOptions { get; } = new() { MyServices = ["Netflix", "Apple TV Plus"] };
     public FakeRadarr Radarr { get; } = new();
     public Downloads Downloads { get; }
+    public FakeSonarr Sonarr { get; } = new();
+    public TvDownloads TvDownloads { get; }
     public WatchlistService Watchlist { get; }
 
     /// <param name="radarr">Whether Radarr is set up; off by default, as when only the release checker is wanted.</param>
-    public TestWorld(bool radarr = false)
+    /// <param name="sonarr">Whether Sonarr is set up; off by default too.</param>
+    public TestWorld(bool radarr = false, bool sonarr = false)
     {
         Directory.CreateDirectory(_dir);
         Database = new Database(Path.Combine(_dir, "watchlist.db"));
@@ -163,7 +288,8 @@ public sealed class TestWorld : IDisposable
         Pushes = new PushStore(Database, Time);
         Meta = new MetaStore(Database);
         Downloads = new Downloads(Radarr.Client(configured: radarr), Items, Alerts, NullLogger<Downloads>.Instance);
-        Watchlist = new WatchlistService(Items, Alerts, Tmdb.Client(), Downloads, Time, Options.Create(new WatchlistOptions()), new FixedOptions<AlertOptions>(AlertOptions));
+        TvDownloads = new TvDownloads(Sonarr.Client(configured: sonarr), Tmdb.Client(), Items, Alerts, NullLogger<TvDownloads>.Instance);
+        Watchlist = new WatchlistService(Items, Alerts, Tmdb.Client(), Downloads, TvDownloads, Time, Options.Create(new WatchlistOptions()), new FixedOptions<AlertOptions>(AlertOptions));
     }
 
     public void Dispose()

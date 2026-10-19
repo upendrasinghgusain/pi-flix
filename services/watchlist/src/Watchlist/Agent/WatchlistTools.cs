@@ -58,7 +58,7 @@ public sealed class WatchlistTools(WatchlistService watchlist, ItemStore items, 
             "Add a confirmed title to the watchlist. Only use ids that came from search results.",
             IdSchema),
         Tool("download_tv",
-            "Send an explicit TV download request to Sonarr. Use only when the user clearly asks to download a series, season or episode. Search and confirm the TV title first. This also adds it to the watchlist.",
+            "Download only part of a show: one season or one episode. Use only when the user names a season or episode. Search and confirm the TV title first. This also adds the show to the watchlist, without sending the rest of it to Sonarr.",
             """
             {"type":"object","properties":{
               "tmdb_id":{"type":"integer"},
@@ -75,7 +75,7 @@ public sealed class WatchlistTools(WatchlistService watchlist, ItemStore items, 
                         "description":"Omit for everything except removed items"}}}
             """),
         Tool("remove_item",
-            "Remove an item from the watchlist, by its item id from list_items. A film still downloading is cancelled; a downloaded file is kept.",
+            "Remove an item from the watchlist, by its item id from list_items. A film or show still downloading is cancelled; downloaded files are kept.",
             """{"type":"object","properties":{"item_id":{"type":"integer"}},"required":["item_id"]}"""),
         Tool("mark_watched",
             "Mark an item as watched, by its item id from list_items.",
@@ -221,21 +221,26 @@ public sealed class WatchlistTools(WatchlistService watchlist, ItemStore items, 
         var season = (int?)args["season"];
         var episode = (int?)args["episode"];
         var tvdbId = await tmdb.GetTvdbIdAsync(tmdbId, ct);
-        var (item, outcome, _) = await watchlist.AddAsync(tmdbId, MediaTypes.Tv, userText, ct);
+        var (item, outcome, _) = await watchlist.AddAsync(tmdbId, MediaTypes.Tv, userText, ct, send: false);
         if (outcome != AddOutcome.AlreadyThere)
             effects.Added.Add(item);
-        var result = await tvDownloads.RequestAsync(tvdbId, item.Title, scope, season, episode, ct);
-        return new { result, item_id = item.Id, title = item.Title, season, episode };
+        var request = await tvDownloads.RequestAsync(tvdbId, item.Title, scope, season, episode, ct);
+        await tvDownloads.TrackAsync(item, request.SeriesId);
+        return new { result = request.Message, item_id = item.Id, title = item.Title, season, episode };
     }
 
-    private static string? Download(Item item) => item.DownloadState switch
+    private static string? Download(Item item)
     {
-        DownloadStates.Searching => "sent to Radarr, which is looking for a copy",
-        DownloadStates.Downloading => "downloading",
-        DownloadStates.Imported => "already downloaded and in their library",
-        DownloadStates.Pending => "couldn't reach Radarr just now; it will be retried automatically",
-        _ => item.MediaType == MediaTypes.Tv ? "Use chat to request a series, season or episode in Sonarr" : null,
-    };
+        var arr = item.MediaType == MediaTypes.Tv ? "Sonarr" : "Radarr";
+        return item.DownloadState switch
+        {
+            DownloadStates.Searching => $"sent to {arr}, which is looking for a copy",
+            DownloadStates.Downloading => "downloading",
+            DownloadStates.Imported => "already downloaded and in their library",
+            DownloadStates.Pending => $"couldn't reach {arr} just now; it will be retried automatically",
+            _ => null,
+        };
+    }
 
     private async Task<object> ListItems(JsonObject args)
     {

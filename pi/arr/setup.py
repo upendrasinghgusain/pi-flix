@@ -186,9 +186,10 @@ for d in call("radarr", "GET", "/qualitydefinition"):
         call("radarr", "PUT", f"/qualitydefinition/{d['id']}", d)
         print("radarr: Unknown size limits back to defaults")
 
-# The watchlist: its .env gets Radarr's address, API key and a webhook secret; Radarr gets a
-# webhook that calls the watchlist on grab, import and delete. Prowlarr's and Sonarr's addresses
-# and keys are for its Status tab, which only reads them (and can ask Prowlarr to test an indexer).
+# The watchlist: its .env gets Radarr's and Sonarr's addresses, API keys and a webhook secret;
+# Radarr and Sonarr each get a webhook that calls the watchlist on grab, import and delete (both
+# use user "radarr" and the same secret). Prowlarr's address and key are for its Status tab, which
+# only reads them (and can ask Prowlarr to test an indexer).
 ENV = "/opt/watchlist/.env"
 lines = open(ENV).read().splitlines()
 values = dict(l.split("=", 1) for l in lines if "=" in l and not l.startswith("#"))
@@ -204,16 +205,19 @@ with open(ENV, "w") as f:
     f.write("\n".join(lines) + "\n")
 os.chmod(ENV, 0o600)
 
-hook = next((n for n in call("radarr", "GET", "/notification") if n["name"] == "Watchlist"), None)
-if hook is None:
-    hook = next(s for s in call("radarr", "GET", "/notification/schema") if s["implementation"] == "Webhook")
-hook = set_fields(hook, url="http://watchlist:8190/hooks/radarr", method=1,
-                  username="radarr", password=wanted["Radarr__WebhookSecret"])
-hook.update(name="Watchlist", onGrab=True, onDownload=True, onUpgrade=True,
-            onMovieDelete=True, onMovieFileDelete=True, onMovieFileDeleteForUpgrade=False)
-if "id" in hook:
-    call("radarr", "PUT", f"/notification/{hook['id']}?forceSave=true", hook)
-    print("radarr: updated Watchlist webhook")
-else:
-    call("radarr", "POST", "/notification?forceSave=true", hook)
-    print("radarr: added Watchlist webhook")
+def watchlist_hook(app, **events):
+    hook = next((n for n in call(app, "GET", "/notification") if n["name"] == "Watchlist"), None)
+    if hook is None:
+        hook = next(s for s in call(app, "GET", "/notification/schema") if s["implementation"] == "Webhook")
+    hook = set_fields(hook, url=f"http://watchlist:8190/hooks/{app}", method=1,
+                      username="radarr", password=wanted["Radarr__WebhookSecret"])
+    hook.update(name="Watchlist", onGrab=True, onDownload=True, onUpgrade=True, **events)
+    if "id" in hook:
+        call(app, "PUT", f"/notification/{hook['id']}?forceSave=true", hook)
+        print(f"{app}: updated Watchlist webhook")
+    else:
+        call(app, "POST", "/notification?forceSave=true", hook)
+        print(f"{app}: added Watchlist webhook")
+
+watchlist_hook("radarr", onMovieDelete=True, onMovieFileDelete=True, onMovieFileDeleteForUpgrade=False)
+watchlist_hook("sonarr", onSeriesDelete=True, onEpisodeFileDelete=True, onEpisodeFileDeleteForUpgrade=False)

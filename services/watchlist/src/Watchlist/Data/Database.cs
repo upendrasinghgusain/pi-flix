@@ -87,6 +87,7 @@ public sealed class Database
         // Added after the first deploy.
         AddColumn(db, "items", "download_state", "TEXT");
         AddColumn(db, "items", "radarr_id", "INTEGER");
+        AddColumn(db, "items", "sonarr_id", "INTEGER");
         AddColumn(db, "messages", "conversation", "TEXT");
         db.Execute("CREATE INDEX IF NOT EXISTS messages_conversation ON messages (conversation, id);");
     }

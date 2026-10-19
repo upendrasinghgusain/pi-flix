@@ -30,13 +30,13 @@ The deployed files are the truth. When changing one, update the copy here as wel
 
 ## Watchlist
 
-The chat agent, list and release checker: spec in [docs/watchlist.md](docs/watchlist.md), code in `services/watchlist`, deployed by `services/watchlist/deploy.sh` to Pi `/opt/watchlist` (copy of its compose file in `pi/watchlist/`). Secrets are in `/opt/watchlist/.env`: never print them. It hands every film on the list to Radarr (the *arr stack) to download; it never searches indexers itself. It sits on the *arr Docker network (`arr_arr`), so start `/opt/arr` first. Its **Status** tab reads Prowlarr, Radarr and Sonarr (read-only, plus "test indexer") and alerts on anything broken for 30 minutes.
+The chat agent, list and release checker: spec in [docs/watchlist.md](docs/watchlist.md), code in `services/watchlist`, deployed by `services/watchlist/deploy.sh` to Pi `/opt/watchlist` (copy of its compose file in `pi/watchlist/`). Secrets are in `/opt/watchlist/.env`: never print them. It hands every film on the list to Radarr and every show to Sonarr (the *arr stack) to download; it never searches indexers itself. It sits on the *arr Docker network (`arr_arr`), so start `/opt/arr` first. Its **Status** tab reads Prowlarr, Radarr and Sonarr (read-only, plus "test indexer") and alerts on anything broken for 30 minutes.
 
 ## Conventions
 
 - C#, latest .NET LTS (SDK pinned in `services/watchlist/global.json`).
 - Pin exact versions of container images and tools. Choose releases at least two weeks old.
-- The watchlist tracks, alerts, and hands films to Radarr.
+- The watchlist tracks, alerts, and hands films to Radarr and shows to Sonarr.
 - The *arr stack (Pi `/opt/arr`, copy in `pi/arr/`) searches and fetches, with **legal indexers only** (the Internet Archive). Never add, configure or tune indexers for pirated content (`indexers.py` only adds definitions on its `LEGAL` list), and its library `/srv/data/library` is the one Jellyfin shows; torrents and library must stay on one filesystem (imports are hard links).
 - **No seeding on the Pi:** qBittorrent stops each torrent when complete (ratio 0), and Radarr/Sonarr remove it after importing, so the library file is the only copy. Deleting in Jellyfin frees the space at once; Radarr/Sonarr unmonitor deleted files, and the watchlist stops searching for them.
 - The risky-business repo is **public**. Keep media details out of it.

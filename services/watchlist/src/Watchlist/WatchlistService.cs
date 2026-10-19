@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using Watchlist.Alerts;
 using Watchlist.Data;
 using Watchlist.Radarr;
+using Watchlist.Sonarr;
 using Watchlist.Tmdb;
 
 namespace Watchlist;
@@ -13,6 +14,7 @@ public sealed class WatchlistService(
     AlertStore alerts,
     TmdbClient tmdb,
     Downloads downloads,
+    TvDownloads tvDownloads,
     TimeProvider time,
     IOptions<WatchlistOptions> options,
     IOptionsMonitor<AlertOptions> alertOptions)
@@ -39,22 +41,25 @@ public sealed class WatchlistService(
     /// <summary>
     /// Saves the title, then checks it straight away so the first answer already says where it's
     /// showing. That first check sends no alerts: the chat reply has just said it all. Films then
-    /// go to Radarr to download, including ones already on the list that never got there.
+    /// go to Radarr and shows to Sonarr to download, including ones already on the list that never
+    /// got there. <paramref name="send"/> false leaves that to the caller (a season or episode request).
     /// </summary>
     public async Task<(Item Item, AddOutcome Outcome, Availability Availability)> AddAsync(
-        int tmdbId, string mediaType, string? addedText, CancellationToken ct = default)
+        int tmdbId, string mediaType, string? addedText, CancellationToken ct = default, bool send = true)
     {
         var details = await tmdb.GetTitleAsync(tmdbId, mediaType, ct);
         var (item, outcome) = await items.AddAsync(details.Ref, addedText);
         var availability = Availability.From(details, Today);
         await Save(item.Id, availability);
-        item = await downloads.SendAsync((await items.GetAsync(item.Id))!, ct);
+        item = (await items.GetAsync(item.Id))!;
+        if (send)
+            item = await SendAsync(item, ct);
         return (item, outcome, availability);
     }
 
     /// <summary>
     /// The "wrong title" fix: points the item at another title and checks it, without alerts.
-    /// The old title is dropped from Radarr and the new one sent.
+    /// The old title is dropped from Radarr or Sonarr and the new one sent.
     /// </summary>
     public async Task<Item?> ReplaceMatchAsync(long id, int tmdbId, string mediaType, CancellationToken ct = default)
     {
@@ -62,11 +67,26 @@ public sealed class WatchlistService(
         var old = await items.GetAsync(id);
         if (!await items.ReplaceMatchAsync(id, details.Ref))
             return null;
-        if (old?.RadarrId is { } radarrId && old.TmdbId != tmdbId)
-            await downloads.ForgetAsync(radarrId, ct);
+        if (old is not null && (old.TmdbId, old.MediaType) != (tmdbId, mediaType))
+        {
+            if (old.RadarrId is { } radarrId)
+                await downloads.ForgetAsync(radarrId, ct);
+            if (old.SonarrId is { } sonarrId)
+                await tvDownloads.ForgetAsync(sonarrId, ct);
+        }
         await Save(id, Availability.From(details, Today));
-        return await downloads.SendAsync((await items.GetAsync(id))!, ct);
+        return await SendAsync((await items.GetAsync(id))!, ct);
     }
+
+    /// <summary>
+    /// Deletes the downloaded film or show with its files. The card stays, back to release
+    /// tracking. Null if Radarr or Sonarr couldn't do it.
+    /// </summary>
+    public Task<Item?> DeleteFileAsync(Item item, CancellationToken ct = default) =>
+        item.MediaType == MediaTypes.Tv ? tvDownloads.DeleteFileAsync(item, ct) : downloads.DeleteFileAsync(item, ct);
+
+    private Task<Item> SendAsync(Item item, CancellationToken ct) =>
+        item.MediaType == MediaTypes.Tv ? tvDownloads.SendAsync(item, ct) : downloads.SendAsync(item, ct);
 
     /// <summary>
     /// Checks one title, compares the result with the last check and saves any alerts. Used by
@@ -107,7 +127,7 @@ public sealed class WatchlistService(
 
     /// <summary>
     /// Changes a card's status, for the list's buttons and the agent alike. Deleting a card cancels
-    /// a film Radarr is still looking for or downloading; bringing it back (Undo) sends it again.
+    /// a film or show still being looked for or downloading; bringing it back (Undo) sends it again.
     /// </summary>
     public async Task<Item?> SetStatusAsync(long id, string status, CancellationToken ct = default)
     {
@@ -116,9 +136,12 @@ public sealed class WatchlistService(
             return null;
         await items.SetStatusAsync(id, status);
         if (status == Statuses.Removed && item.Status != Statuses.Removed)
+        {
             await downloads.CardDeletedAsync(item, ct);
+            await tvDownloads.CardDeletedAsync(item, ct);
+        }
         else if (item.Status == Statuses.Removed && status != Statuses.Removed)
-            return await downloads.SendAsync((await items.GetAsync(id))!, ct);
+            return await SendAsync((await items.GetAsync(id))!, ct);
         return await items.GetAsync(id);
     }
 

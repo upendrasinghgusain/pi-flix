@@ -85,7 +85,7 @@ public sealed class Downloads(RadarrClient radarr, ItemStore items, AlertStore a
     /// </summary>
     public async Task CardDeletedAsync(Item item, CancellationToken ct)
     {
-        if (item.DownloadState is DownloadStates.Imported or null)
+        if (item.MediaType != MediaTypes.Movie || item.DownloadState is DownloadStates.Imported or null)
             return;
         if (item.RadarrId is { } radarrId)
             await ForgetAsync(radarrId, ct);
@@ -141,7 +141,7 @@ public sealed class Downloads(RadarrClient radarr, ItemStore items, AlertStore a
     {
         if (!IsOn)
             return;
-        foreach (var item in await items.WithDownloadStateAsync(DownloadStates.Pending))
+        foreach (var item in await items.WithDownloadStateAsync(MediaTypes.Movie, DownloadStates.Pending))
             await SendAsync(item, ct);
     }
 
@@ -154,7 +154,7 @@ public sealed class Downloads(RadarrClient radarr, ItemStore items, AlertStore a
     {
         if (!IsOn)
             return;
-        foreach (var item in await items.WithDownloadStateAsync(DownloadStates.Searching, DownloadStates.Downloading))
+        foreach (var item in await items.WithDownloadStateAsync(MediaTypes.Movie, DownloadStates.Searching, DownloadStates.Downloading))
         {
             try
             {

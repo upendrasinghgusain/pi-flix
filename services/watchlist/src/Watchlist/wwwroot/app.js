@@ -6,7 +6,7 @@ const dateFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short
 const CATEGORY = { flatrate: "stream", free: "free", ads: "free with ads", rent: "rent", buy: "buy" };
 const KIND = { digital: "digital", disc: "disc", tv: "on TV", aired: "first aired", cinema: "cinemas" };
 const STATUS = { waiting: "waiting", available: "available", in_library: "in library", watched: "watched", removed: "removed" };
-const DOWNLOAD = { pending: "sending to Radarr", searching: "looking for a copy", downloading: "downloading" };
+const DOWNLOAD = { pending: "sending to download", searching: "looking for a copy", downloading: "downloading" };
 
 const $ = (id) => document.getElementById(id);
 

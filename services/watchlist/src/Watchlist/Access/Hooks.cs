@@ -4,8 +4,8 @@ using System.Text;
 namespace Watchlist.Access;
 
 /// <summary>
-/// The lock on /hooks, which Radarr calls from the Pi's *arr network. It needs the shared secret
-/// (Radarr's webhook user name "radarr" and password), and anything that came in through
+/// The lock on /hooks, which Radarr and Sonarr call from the Pi's *arr network. It needs the shared
+/// secret (webhook user name "radarr", for both, and password), and anything that came in through
 /// Cloudflare is refused, so the hook can't be reached from the internet even with the secret.
 /// </summary>
 public static class Hooks

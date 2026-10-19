@@ -46,14 +46,11 @@ public sealed class ChatAgentTests : IDisposable
 
     private ChatAgent Agent(IChatModel model, int dailyLimit = 200) => new(
         model,
-        new WatchlistTools(_world.Watchlist, _world.Items, _world.Tmdb.Client(), UnconfiguredSonarr()),
+        new WatchlistTools(_world.Watchlist, _world.Items, _world.Tmdb.Client(), _world.TvDownloads),
         _world.Messages,
         _world.Watchlist,
         Options.Create(new WatchlistOptions { DailyMessageLimit = dailyLimit }),
         NullLogger<ChatAgent>.Instance);
-
-    private static TvDownloads UnconfiguredSonarr() => new(new SonarrClient(new HttpClient(),
-        Options.Create(new SonarrOptions())));
 
     [Fact]
     public async Task Searches_then_adds_and_reports_what_was_added()
@@ -179,7 +176,7 @@ public sealed class ChatAgentTests : IDisposable
         var model = new ScriptedModel(
             ScriptedModel.Call(("add_item", """{"tmdb_id":1078605,"media_type":"movie"}""")),
             ScriptedModel.Say("Added Weapons (2025); Radarr is looking for a copy."));
-        var agent = new ChatAgent(model, new WatchlistTools(world.Watchlist, world.Items, world.Tmdb.Client(), UnconfiguredSonarr()), world.Messages,
+        var agent = new ChatAgent(model, new WatchlistTools(world.Watchlist, world.Items, world.Tmdb.Client(), _world.TvDownloads), world.Messages,
             world.Watchlist, Options.Create(new WatchlistOptions()), NullLogger<ChatAgent>.Instance);
 
         await agent.HandleAsync("I want to watch Weapons", "c1", default);

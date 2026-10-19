@@ -4,6 +4,7 @@ using Watchlist.Data;
 using Watchlist.Pipeline;
 using Watchlist.Push;
 using Watchlist.Radarr;
+using Watchlist.Sonarr;
 
 namespace Watchlist.Alerts;
 
@@ -135,11 +136,14 @@ public sealed class ReleaseChecker(IServiceScopeFactory scopes, TimeProvider tim
                 using var scope = scopes.CreateScope();
                 var runner = scope.ServiceProvider.GetRequiredService<CheckRunner>();
                 var downloads = scope.ServiceProvider.GetRequiredService<Downloads>();
+                var tvDownloads = scope.ServiceProvider.GetRequiredService<TvDownloads>();
                 await downloads.RetryPendingAsync(stoppingToken);
+                await tvDownloads.RetryPendingAsync(stoppingToken);
                 if (await runner.IsCheckDueAsync())
                 {
                     await runner.RunChecksAsync(stoppingToken);
                     await downloads.ReconcileAsync(stoppingToken);
+                    await tvDownloads.ReconcileAsync(stoppingToken);
                 }
                 await runner.DeliverAsync(stoppingToken);
                 if (time.GetUtcNow() - _pipelineCheckedAt >= PipelineEvery)

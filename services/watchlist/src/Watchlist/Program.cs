@@ -83,7 +83,8 @@ var radarrOptions = app.Services.GetRequiredService<IOptions<RadarrOptions>>().V
 
 app.Use(async (context, next) =>
 {
-    // Radarr's webhook comes from the *arr network, not through Cloudflare, so it has its own lock.
+    // Radarr's and Sonarr's webhooks come from the *arr network, not through Cloudflare, so they
+    // have their own lock (the same secret for both).
     if (context.Request.Path.StartsWithSegments("/hooks"))
     {
         if (!Hooks.Allowed(context.Request, radarrOptions.WebhookSecret))
@@ -118,6 +119,12 @@ var api = app.MapGroup("/api");
 app.MapPost("/hooks/radarr", async (RadarrEvent e, Downloads downloads) =>
 {
     await downloads.HandleAsync(e);
+    return Results.Ok();
+});
+
+app.MapPost("/hooks/sonarr", async (SonarrEvent e, TvDownloads tvDownloads, CancellationToken ct) =>
+{
+    await tvDownloads.HandleAsync(e, ct);
     return Results.Ok();
 });
 
@@ -199,14 +206,15 @@ api.MapPut("/items/{id:long}/match", async (long id, ChooseRequest request, Watc
         : Results.Ok(ItemDto.From(item));
 });
 
-// Deletes the downloaded film (Radarr removes the file; Jellyfin drops it). The card stays.
-api.MapDelete("/items/{id:long}/file", async (long id, ItemStore items, Downloads downloads, CancellationToken ct) =>
+// Deletes the downloaded film or show (Radarr or Sonarr removes the files; Jellyfin drops them). The card stays.
+api.MapDelete("/items/{id:long}/file", async (long id, ItemStore items, WatchlistService watchlist, CancellationToken ct) =>
 {
     if (await items.GetAsync(id) is not { } item)
         return Results.NotFound();
-    return await downloads.DeleteFileAsync(item, ct) is { } updated
+    var arr = item.MediaType == MediaTypes.Tv ? "Sonarr" : "Radarr";
+    return await watchlist.DeleteFileAsync(item, ct) is { } updated
         ? Results.Ok(ItemDto.From(updated))
-        : Results.Problem("Radarr couldn't delete it just now. Try again in a minute.", statusCode: StatusCodes.Status502BadGateway);
+        : Results.Problem($"{arr} couldn't delete it just now. Try again in a minute.", statusCode: StatusCodes.Status502BadGateway);
 });
 
 api.MapPost("/items/{id:long}/check", async (long id, WatchlistService watchlist, CancellationToken ct) =>

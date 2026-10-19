@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Watchlist.Sonarr;
 using Watchlist.Tmdb;
@@ -9,8 +10,12 @@ using Watchlist.Data;
 
 namespace Watchlist.Tests;
 
-public sealed class TvDownloadTests
+public sealed class TvDownloadTests : IDisposable
 {
+    private readonly TestWorld _world = new();
+
+    public void Dispose() => _world.Dispose();
+
     [Fact]
     public async Task Adding_a_season_monitors_only_that_season_and_searches_for_missing_episodes()
     {
@@ -19,7 +24,8 @@ public sealed class TvDownloadTests
 
         var result = await downloads.RequestAsync(1234, "Example Show", "season", 2, null, default);
 
-        Assert.Contains("season 2", result);
+        Assert.Contains("season 2", result.Message);
+        Assert.Equal(10, result.SeriesId);
         Assert.StartsWith("POST series ", Assert.Single(api.Requests, r => r.StartsWith("POST series", StringComparison.Ordinal)));
         Assert.Equal(4, (int)api.AddedSeries!["qualityProfileId"]!);
         Assert.True((bool)api.AddedSeries["addOptions"]!["searchForMissingEpisodes"]!);
@@ -37,7 +43,7 @@ public sealed class TvDownloadTests
 
         var result = await downloads.RequestAsync(1234, "Example Show", "episode", 2, 3, default);
 
-        Assert.Contains("S02E03", result);
+        Assert.Contains("S02E03", result.Message);
         var monitor = Assert.Single(api.Requests, r => r.StartsWith("PUT episode/monitor ", StringComparison.Ordinal));
         Assert.Contains("\"episodeIds\":[203]", monitor);
         var command = Assert.Single(api.Requests, r => r.StartsWith("POST command ", StringComparison.Ordinal));
@@ -85,25 +91,33 @@ public sealed class TvDownloadTests
     [Fact]
     public async Task Chat_download_tool_resolves_tvdb_id_adds_the_show_and_routes_episode_to_sonarr()
     {
-        using var world = new TestWorld();
-        world.Tmdb
+        _world.Tmdb
             .On("tv/95396/external_ids", """{"tvdb_id":1234}""")
             .On("tv/95396", """{"id":95396,"name":"Severance","first_air_date":"2022-02-17","status":"Returning Series","number_of_seasons":2,"watch/providers":{"results":{}}}""");
         var api = new SonarrApi(existing: true);
         var effects = new TurnEffects();
-        var tools = new WatchlistTools(world.Watchlist, world.Items, world.Tmdb.Client(), Downloads(api));
+        var tools = new WatchlistTools(_world.Watchlist, _world.Items, _world.Tmdb.Client(), Downloads(api));
 
         var result = await tools.ExecuteAsync("download_tv", """{"tmdb_id":95396,"scope":"episode","season":2,"episode":3}""", "download Severance S2E3", effects, default);
 
         Assert.Contains("S02E03", result);
-        Assert.Equal("Severance", Assert.Single(effects.Added).Title);
-        Assert.Contains(world.Tmdb.Requests, r => r.StartsWith("tv/95396/external_ids", StringComparison.Ordinal));
+        var item = Assert.Single(effects.Added);
+        Assert.Equal("Severance", item.Title);
+        Assert.Contains(_world.Tmdb.Requests, r => r.StartsWith("tv/95396/external_ids", StringComparison.Ordinal));
         Assert.Contains(api.Requests, r => r.StartsWith("POST command ", StringComparison.Ordinal) && r.Contains("EpisodeSearch", StringComparison.Ordinal));
+        // Only the episode was asked for: the rest of the show isn't searched.
+        Assert.DoesNotContain(api.Requests, r => r.Contains("SeriesSearch", StringComparison.Ordinal));
+        // The card follows Sonarr, like a film's follows Radarr.
+        var tracked = (await _world.Items.GetAsync(item.Id))!;
+        Assert.Equal(DownloadStates.Searching, tracked.DownloadState);
+        Assert.Equal(10, tracked.SonarrId);
     }
 
-    private static TvDownloads Downloads(SonarrApi api) => new(new SonarrClient(
-        new HttpClient(api),
-        Options.Create(new SonarrOptions { Url = "http://sonarr", ApiKey = "test", QualityProfile = "Watchlist" })));
+    private TvDownloads Downloads(SonarrApi api) => new(
+        new SonarrClient(
+            new HttpClient(api),
+            Options.Create(new SonarrOptions { Url = "http://sonarr", ApiKey = "test", QualityProfile = "Watchlist" })),
+        _world.Tmdb.Client(), _world.Items, _world.Alerts, NullLogger<TvDownloads>.Instance);
 
     private sealed class SonarrApi(bool existing) : HttpMessageHandler
     {

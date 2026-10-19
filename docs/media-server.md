@@ -69,7 +69,7 @@ Steps 1–4 are the *arr pipeline, summarised here; [its own section](#the-arr-p
 
 ### 1. You ask for it
 
-- **What happens:** you name a film in the watchlist chat on your phone, and it goes to Radarr. A whole series, a season or an episode goes to Sonarr, but only when you ask for it explicitly. You can also add titles in Radarr or Sonarr by hand.
+- **What happens:** you name a film or a show in the watchlist chat on your phone. A film goes to Radarr; a show goes to Sonarr, the whole series (or just the season or episode you name). You can also add titles in Radarr or Sonarr by hand.
 - **Access:** Cloudflare Access lets only `upendra.gusain@gmail.com` reach the watchlist, and the watchlist checks Access's signed token too. Inside the Pi, the watchlist talks to Radarr and Sonarr over their private Docker network, with their API keys.
 
 ### 2. Radarr or Sonarr searches
@@ -91,7 +91,7 @@ Steps 1–4 are the *arr pipeline, summarised here; [its own section](#the-arr-p
   shows/MobLand/Season 02/MobLand S02E05.mkv
   ```
 
-  Radarr's webhook then tells the watchlist, so the card moves to *in library* and your phone gets an alert.
+  Radarr's (or Sonarr's) webhook then tells the watchlist, so the card moves to *in library* and your phone gets an alert.
 
 ### 5. Jellyfin notices and enriches the film
 
@@ -218,12 +218,12 @@ flowchart LR
     T -- "hard link + rename" --> L --> JF
 ```
 
-1. **You request a title:** say a film in the watchlist chat to send it to Radarr, or explicitly ask for a whole TV series, season or episode to send it to Sonarr. You can also add it in either app by hand.
+1. **You request a title:** add a film in the watchlist chat and it goes to Radarr; add a show and the whole series goes to Sonarr (or name a season or episode for just that). You can also add it in either app by hand.
 2. **Radarr or Sonarr searches** through Prowlarr, which queries the configured legal indexers. Every result is parsed and checked against the app's profile, size limits and blocklist.
 3. **The best release goes to qBittorrent** with the category `radarr` or `sonarr`.
 4. **When it finishes, qBittorrent stops it** (share limit: ratio 0, then stop; set by setup.py), and **Radarr hard-links the file** into `/srv/data/library/movies/Title (Year)/`, renamed. Radarr then **removes the torrent and its data** (*Remove completed downloads* on the download client), so the library file is the only copy. Nothing seeds.
 5. **Jellyfin** sees it within seconds (live monitoring is on), in `/media/movies`.
-6. **Radarr's webhook** calls the watchlist (`http://watchlist:8190/hooks/radarr`, user `radarr` and a secret from the watchlist's `.env`), so the card moves to *downloading*, then *in library*, and your phone gets an alert. The watchlist container is on the same Docker network for this. When the file is deleted later, the webhook takes the card out of the download flow.
+6. **Radarr's and Sonarr's webhooks** call the watchlist (`http://watchlist:8190/hooks/radarr` and `/hooks/sonarr`, both with user `radarr` and a secret from the watchlist's `.env`), so the card moves to *downloading*, then *in library*, and your phone gets an alert. The watchlist container is on the same Docker network for this. When the file is deleted later, the webhook takes the card out of the download flow.
 
 - **Indexers:** only the Internet Archive, set up in Prowlarr, which copies it to Radarr and Sonarr. Studio films aren't on legal indexers, so this pipeline won't find your watchlist titles; that's expected. Prowlarr's catalogue has ~580 definitions, but almost all are piracy sites or private trackers; on 2026-10-18 The Pirate Bay and LimeTorrents had been added by hand and were removed. Keep it to legal sources.
 - **Adding or trying indexers:** [pi/arr/indexers.py](../pi/arr/indexers.py), run from the laptop through [indexers.ps1](../pi/arr/indexers.ps1), which pipes it to the Pi over SSH, so there is nothing to deploy. It only adds definitions on its `LEGAL` list, or a Torznab/Newznab feed of your own:
@@ -255,7 +255,7 @@ flowchart LR
   - **RSS is off** (Prowlarr's sync profile *Standard*): the archive's "newest first" listing is too slow, and each timeout **pauses the indexer**, blocking real searches. Only searches for a named title run. Radarr and Sonarr therefore show an "RSS sync" health warning; it's expected, and the Status tab hides it.
   - **archive.org slows down Prowlarr on purpose:** the same search takes ~0.5 s with most User-Agents and 40–95 s with Prowlarr's (tested 2026-10-18), so Prowlarr sometimes times out and pauses the indexer for a while (its back-off; longer after each failure in a row). We don't disguise Prowlarr to get round it; that's the Internet Archive's call. To lift a pause: **Test now** on the Status tab, or `.\pi\arr\indexers.ps1 test "Internet Archive"`. Searches are retried: the watchlist's daily check asks Radarr to search again for every film still *looking for a copy*, and saying the film again in the chat re-sends a search too.
 - **Sonarr and the Internet Archive:** Sonarr searches for exact episodes ("One Step Beyond S01E01", or "S01" for a season), and archive.org matches titles only, where uploads are named like "One Step Beyond S1 E1 The Bride Possessed". So Sonarr's own searches find nothing (tested 2026-10-18), though it parses those names fine. What works: find the item (`indexers.ps1 search "Internet Archive" "One Step Beyond Bride"`), then hand it to Sonarr with its *push release* API (`POST /api/v3/release/push` with the title and `https://archive.org/download/<id>/<id>_archive.torrent`). The series and episode must be monitored. Sonarr then sends it to qBittorrent and imports it like any grab, as a hard link (tested end to end with *One Step Beyond* S01E01).
-- **Wiring:** [pi/arr/setup.py](../pi/arr/setup.py) sets up, through the apps' APIs: the root folders, renaming, the download client, the indexer, the Prowlarr links, the Watchlist profile and custom formats in **both** Radarr and Sonarr, "unmonitor deleted files", qBittorrent's skipped files, `.!qB` for unfinished files and **no seeding** (ratio 0, then stop), Radarr's webhook, and the watchlist's `.env` (Radarr, Prowlarr and Sonarr addresses and keys). It's safe to re-run: `sudo python3 /opt/arr/setup.py` (sudo because it writes the watchlist's `.env`).
+- **Wiring:** [pi/arr/setup.py](../pi/arr/setup.py) sets up, through the apps' APIs: the root folders, renaming, the download client, the indexer, the Prowlarr links, the Watchlist profile and custom formats in **both** Radarr and Sonarr, "unmonitor deleted files", qBittorrent's skipped files, `.!qB` for unfinished files and **no seeding** (ratio 0, then stop), Radarr's and Sonarr's webhooks, and the watchlist's `.env` (Radarr, Prowlarr and Sonarr addresses and keys). It's safe to re-run: `sudo python3 /opt/arr/setup.py` (sudo because it writes the watchlist's `.env`).
 - **Space back after deleting:** [pi/arr/reclaim.py](../pi/arr/reclaim.py), deployed to `/opt/arr`. Normally there's nothing for it to do (Radarr and Sonarr remove finished torrents); a safety net for upendra's crontab, hourly (**not installed yet**): `17 * * * * python3 /opt/arr/reclaim.py --apply >> /opt/arr/reclaim.log 2>&1`. First run 2026-10-18 freed 1.2 GB (Nosferatu, deleted in Jellyfin). It keeps a torrent that was never imported, is still in an app's queue, or still has a file in the library.
 - **qBittorrent** skips its password for requests from the stack's Docker network (`172.20.0.0/16`), so the apps need no password for it. Its web page and the three apps listen on the Pi only. It doesn't seed: each torrent stops when complete, and Radarr/Sonarr remove it after importing.
 - **API keys** are in each app's `config.xml` under `/opt/arr`; the scripts read them from there. Never print them.
