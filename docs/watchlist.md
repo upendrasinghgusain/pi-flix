@@ -1,6 +1,6 @@
 # Watchlist: spec
 
-Status: **build steps 1–3 deployed** at `chat.upendragusain.co.uk`, plus **downloading through Radarr** (2026-10-17; see [Downloading](#downloading)) and the **Status tab** for the download pipeline (2026-10-18; see [The Status tab](#the-status-tab)). "In your library" comes from Radarr, not from Jellyfin's API (build step 4 isn't done). Code in [services/watchlist](../services/watchlist/). Written 2026-10-17, updated 2026-10-18. The "how it works now" story is in [media-server.md](media-server.md); this stays as the design record.
+Status: **build steps 1–3 deployed** at `chat.upendragusain.co.uk`, plus **downloading through Radarr** (2026-10-17; see [Downloading](#downloading)), explicit series, season and episode requests through Sonarr (2026-10-19), and the **Status tab** for the download pipeline (2026-10-18; see [The Status tab](#the-status-tab)). "In your library" comes from Radarr, not from Jellyfin's API (build step 4 isn't done). Code in [services/watchlist](../services/watchlist/). Written 2026-10-17, updated 2026-10-19. The "how it works now" story is in [media-server.md](media-server.md); this stays as the design record.
 
 ## 1. Purpose
 
@@ -70,18 +70,19 @@ The rules:
 - **One clear match:** add it straight away and offer **Undo**.
 - **Several close matches:** show up to 4 buttons and add nothing until you tap one.
 - **No match:** say so and ask for more detail. **Never guess silently.**
-- **Saying it:** "add …", "I want to watch …", "get me …", "download …", "put … on my list" all add. Questions ("where can I watch …", "is … out yet") and ordinary chat save nothing.
+- **Saying it:** "add …", "I want to watch …", or "put … on my list" adds a title to track. An explicit "download …" request sends films to Radarr and TV requests to Sonarr. Questions ("where can I watch …", "is … out yet") and ordinary chat save nothing.
 - **Each opening of the app is a new conversation:** the screen starts empty and the agent remembers only what's said since.
 
 ### Downloading
 
-Every **film** on the list is downloaded, through the *arr stack on the Pi (see [media-server.md](media-server.md#the-arr-pipeline-public-domain-titles)), which uses **legal indexers only**. TV isn't downloaded yet.
+Films added to the list go to Radarr. For TV, an explicit chat request can send a whole series, a season, or one episode to Sonarr. Searches use the indexers configured in Prowlarr; keep those to legal sources.
 
 1. Adding a film also adds it to **Radarr** (quality profile *Watchlist*, library `/data/library/movies`) and starts a search. Saying it again for a film already on the list re-sends it: a fresh search if Radarr is still looking, or, for a film you deleted, Radarr is told to want it again (re-monitored) and searches.
 2. Radarr searches through Prowlarr, picks a release, and hands it to the Pi's qBittorrent. When it's done, qBittorrent stops it (no seeding), Radarr hard-links it into the library, which Jellyfin shows, and then removes the torrent and its data. The library file is the only copy.
 3. **Radarr's webhook** tells the watchlist what happened, and the card moves along: *looking for a copy* → *downloading* → **in library**, with a push alert "Downloaded: it's in your library."
 4. **Safety nets:** if Radarr can't be reached, the film is marked *sending to Radarr* and re-sent every 5 minutes. The daily check asks Radarr about every film still in progress, in case a webhook was missed, and searches again for those still *looking for a copy* (the Internet Archive often times out). A film Radarr no longer wants (you deleted it) is settled instead, never searched.
-5. **Removing things:**
+5. **TV requests:** say "download all of [show]", "download season 2 of [show]", or "download [show] season 2 episode 3". The chat confirms the title with TMDb, then Sonarr monitors and searches the selected scope. For a full series or season, Sonarr continues monitoring missing episodes; an individual episode request monitors and searches only that episode. Sonarr's quality profile and root folder are `Watchlist` and `/data/library/shows`. The chat confirms the search was queued; a matching release still needs to exist, and TV import progress is currently visible in Sonarr rather than on the watchlist card.
+6. **Removing things:**
    - **Delete** (or "remove …" in the chat) takes the card off the list. A film still being looked for or downloading is cancelled in Radarr and removed from qBittorrent. A film already downloaded **stays** in the library. **Undo** sends it to Radarr again.
    - **Delete file** (only on downloaded films; tap twice) deletes the film in Radarr with its library file, so Jellyfin drops it. The card stays, back to release tracking. Only from the list, never from the chat.
    - **Deleting the file in Jellyfin** (or in Radarr): Radarr unmonitors the film and its webhook takes the card out of the download flow, back to release tracking. It isn't searched for or downloaded again unless you ask for it.
@@ -154,12 +155,13 @@ Alerts arrive as phone notifications. Tapping one opens that title's card on the
 | `search_person(name)` / `person_credits(id)` | For "the new one from the Barbarian director" |
 | `get_title(tmdb_id, type)` | Details, to confirm a guess |
 | `add_item(tmdb_id, type)` | Save it. Refuses duplicates and says it's already there. |
+| `download_tv(tmdb_id, scope, season?, episode?)` | Add the confirmed show to the list and send a whole series, one season, or one episode to Sonarr |
 | `remove_item(id)` / `mark_watched(id)` / `snooze_item(id, days)` | Change a saved title |
 | `list_items(filter?)` | What's saved, with current status |
 | `where_to_watch(tmdb_id, type)` | Services, rent and buy options right now: the UK and the earliest elsewhere |
 | `ask_user_to_choose(options[])` | Show buttons instead of guessing |
 
-- **What it can't do:** the tools are limited to the watchlist and TMDb. It has no file, shell or network access beyond them, so a strange title or description can't make it do anything else.
+- **Boundaries:** the app only calls the watchlist, TMDb and Sonarr APIs it needs for a confirmed TV request. It does not expose shell, file or arbitrary network access to the model.
 - **Guessing:** the model may use its own knowledge to guess a title from a description, but **every guess must be confirmed against TMDb** before it's saved. This also covers films newer than the model's training.
 
 ### Voice
@@ -302,7 +304,7 @@ Settings live in `/opt/watchlist/data/settings.json` (example: [pi/watchlist/set
 
 ## 9. Out of scope
 
-- **Downloading TV.** Films go to Radarr (see [Downloading](#downloading)). Shows could go to Sonarr the same way, but Sonarr can't search the Internet Archive by episode (it asks for "S01E01", which archive names don't contain), so automatic TV downloads would find nothing; episodes are pushed to Sonarr by hand for now ([media-server.md](media-server.md#the-arr-pipeline-public-domain-titles)). MediaTidy keeps filing whatever arrives in `C:\qBittorrent` on the laptop.
+- **TV import detection:** the chat can request a series, season or episode through Sonarr, but the watchlist does not yet follow TV imports or show their progress on the card. Check Sonarr for download and import status.
 - **Recommendations** ("what should I watch?"). Possibly later, using TMDb's recommendations for titles you marked watched.
 - **Native Android app, Telegram, Trakt sync:** possible later front ends or mirrors that talk to the same service. Not needed for the first version.
 

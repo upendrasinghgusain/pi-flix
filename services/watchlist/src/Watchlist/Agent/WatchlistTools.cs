@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using OpenAI.Chat;
 using Watchlist.Data;
+using Watchlist.Sonarr;
 using Watchlist.Tmdb;
 
 namespace Watchlist.Agent;
@@ -18,10 +19,10 @@ public sealed class TurnEffects
 }
 
 /// <summary>
-/// The agent's tools. They can only search TMDb and change the watchlist; nothing else is reachable.
+/// The agent's tools. They can search TMDb, change the watchlist and send explicit TV requests to Sonarr.
 /// Every result is a small JSON string for the model to read.
 /// </summary>
-public sealed class WatchlistTools(WatchlistService watchlist, ItemStore items, TmdbClient tmdb)
+public sealed class WatchlistTools(WatchlistService watchlist, ItemStore items, TmdbClient tmdb, TvDownloads tvDownloads)
 {
     private const int MaxResults = 8;
 
@@ -56,6 +57,16 @@ public sealed class WatchlistTools(WatchlistService watchlist, ItemStore items, 
         Tool("add_item",
             "Add a confirmed title to the watchlist. Only use ids that came from search results.",
             IdSchema),
+        Tool("download_tv",
+            "Send an explicit TV download request to Sonarr. Use only when the user clearly asks to download a series, season or episode. Search and confirm the TV title first. This also adds it to the watchlist.",
+            """
+            {"type":"object","properties":{
+              "tmdb_id":{"type":"integer"},
+              "scope":{"type":"string","enum":["series","season","episode"]},
+              "season":{"type":"integer","description":"Required for season and episode requests; zero means specials."},
+              "episode":{"type":"integer","description":"Required for an episode request."}},
+             "required":["tmdb_id","scope"]}
+            """),
         Tool("list_items",
             "The watchlist, with each item's id and status.",
             """
@@ -101,6 +112,7 @@ public sealed class WatchlistTools(WatchlistService watchlist, ItemStore items, 
                 "get_title" => await GetTitle(args, ct),
                 "where_to_watch" => await WhereToWatch(args, ct),
                 "add_item" => await AddItem(args, userText, effects, ct),
+                "download_tv" => await DownloadTv(args, userText, effects, ct),
                 "list_items" => await ListItems(args),
                 "remove_item" => await SetStatus(args, Statuses.Removed, ct),
                 "mark_watched" => await SetStatus(args, Statuses.Watched, ct),
@@ -109,7 +121,8 @@ public sealed class WatchlistTools(WatchlistService watchlist, ItemStore items, 
             };
             return JsonSerializer.Serialize(result, WatchlistService.Json);
         }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidOperationException or KeyNotFoundException or FormatException)
+        catch (Exception ex) when ((ex is HttpRequestException or JsonException or InvalidOperationException or KeyNotFoundException
+                                    or FormatException or TaskCanceledException) && !ct.IsCancellationRequested)
         {
             return JsonSerializer.Serialize(new { error = ex.Message }, WatchlistService.Json);
         }
@@ -201,13 +214,27 @@ public sealed class WatchlistTools(WatchlistService watchlist, ItemStore items, 
         };
     }
 
+    private async Task<object> DownloadTv(JsonObject args, string userText, TurnEffects effects, CancellationToken ct)
+    {
+        var tmdbId = (int?)args["tmdb_id"] ?? throw new KeyNotFoundException("tmdb_id is required");
+        var scope = (string?)args["scope"] ?? throw new KeyNotFoundException("scope is required");
+        var season = (int?)args["season"];
+        var episode = (int?)args["episode"];
+        var tvdbId = await tmdb.GetTvdbIdAsync(tmdbId, ct);
+        var (item, outcome, _) = await watchlist.AddAsync(tmdbId, MediaTypes.Tv, userText, ct);
+        if (outcome != AddOutcome.AlreadyThere)
+            effects.Added.Add(item);
+        var result = await tvDownloads.RequestAsync(tvdbId, item.Title, scope, season, episode, ct);
+        return new { result, item_id = item.Id, title = item.Title, season, episode };
+    }
+
     private static string? Download(Item item) => item.DownloadState switch
     {
         DownloadStates.Searching => "sent to Radarr, which is looking for a copy",
         DownloadStates.Downloading => "downloading",
         DownloadStates.Imported => "already downloaded and in their library",
         DownloadStates.Pending => "couldn't reach Radarr just now; it will be retried automatically",
-        _ => item.MediaType == MediaTypes.Tv ? "TV isn't downloaded automatically yet" : null,
+        _ => item.MediaType == MediaTypes.Tv ? "Use chat to request a series, season or episode in Sonarr" : null,
     };
 
     private async Task<object> ListItems(JsonObject args)

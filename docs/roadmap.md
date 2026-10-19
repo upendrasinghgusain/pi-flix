@@ -78,9 +78,8 @@ These hold irreplaceable data, so do items 3–5 first. Reach them with Tailscal
 
 ## 9. Watchlist: what's left
 
-Done: the chat app, release alerts, downloading through Radarr, and the Status tab ([watchlist.md](watchlist.md)). Still to do:
+Done: the chat app, release alerts, downloading through Radarr, explicit series/season/episode requests through Sonarr, and the Status tab ([watchlist.md](watchlist.md)). Still to do:
 - **"In your library" from Jellyfin**, so TV and films you copied in yourself count too (today only Radarr's films do); a Jellyfin API key goes in its `.env`.
-- **TV downloads:** Sonarr can't search the Internet Archive by episode, so this waits for a source it can search, or a "push this item" helper in the app.
 - Weekly digest, a "Hey Google" shortcut, the MCP server, auto-*watched* from Jellyfin plays.
 
 ## Housekeeping

@@ -59,7 +59,12 @@ public abstract class ArrOptions
 
 public sealed class ProwlarrOptions : ArrOptions;
 
-public sealed class SonarrOptions : ArrOptions;
+/// <summary>Sonarr, which searches for requested TV series, seasons and episodes.</summary>
+public sealed class SonarrOptions : ArrOptions
+{
+    public string QualityProfile { get; set; } = "Watchlist";
+    public string RootFolder { get; set; } = "/data/library/shows";
+}
 
 /// <summary>Cloudflare Access, which sits in front of the whole hostname.</summary>
 public sealed class AccessOptions

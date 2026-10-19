@@ -127,6 +127,14 @@ public sealed class TmdbClient
         return ParseDetails(doc.RootElement, mediaType);
     }
 
+    /// <summary>Returns the TVDB id Sonarr uses for a TMDb TV series.</summary>
+    public async Task<int> GetTvdbIdAsync(int tmdbId, CancellationToken ct = default)
+    {
+        using var doc = await GetAsync($"tv/{tmdbId}/external_ids", ct);
+        return Int(doc.RootElement, "tvdb_id")
+               ?? throw new InvalidOperationException($"TMDb has no TVDB id for series {tmdbId}.");
+    }
+
     internal static TitleDetails ParseDetails(JsonElement root, string mediaType)
     {
         var releases = new List<CountryRelease>();

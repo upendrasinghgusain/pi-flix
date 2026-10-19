@@ -199,7 +199,7 @@ async function send(text) {
 }
 
 function greet() {
-  bubble("assistant", "What do you want to watch? Even roughly: \"I want to watch that film where Matt Damon grows potatoes\". Films are downloaded for you. Or ask where something's showing.");
+  bubble("assistant", "What do you want to watch? Even roughly: \"I want to watch that film where Matt Damon grows potatoes\". Films are downloaded automatically; ask me to download a whole show, a season or an episode. Or ask where something's showing.");
 }
 
 function autosize() {

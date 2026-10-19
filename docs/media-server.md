@@ -4,12 +4,12 @@ How films and shows get to the Sony TV, and how they leave again. At each step: 
 
 Set up 2026-10-16. Home network only, by choice.
 
-## How it works now (since 2026-10-18)
+## How it works now (since 2026-10-19)
 
 ```text
-watchlist chat ──► Radarr (films) ──► Prowlarr ──► Internet Archive
- or Radarr/Sonarr       │                            (legal sources only)
- by hand                ▼
+watchlist chat ──► Radarr (films) ──┐
+               └─► Sonarr (TV) ────┴─► Prowlarr ──► legal indexers
+                                      ▼
                    qBittorrent (Pi) ──► stops when complete, no seeding
                         │
                         ▼  Radarr/Sonarr hard-link it in, then remove the torrent
@@ -19,7 +19,7 @@ watchlist chat ──► Radarr (films) ──► Prowlarr ──► Internet Ar
 ```
 
 - **One library folder:** everything Jellyfin shows is in **`/srv/data/library/movies`** and **`/srv/data/library/shows`** on the Pi (`/media/movies` and `/media/shows` inside Jellyfin, as before, so watch history carried over). The films and shows that came from the laptop were moved there too.
-- **Downloads** come through [the *arr pipeline](#the-arr-pipeline-public-domain-titles): say a film in the watchlist chat, and Radarr fetches it if a legal source has it. Nothing seeds; the library file is the only copy.
+- **Downloads** come through [the *arr pipeline](#the-arr-pipeline-public-domain-titles): the watchlist sends films to Radarr and explicit series, season or episode requests to Sonarr. They search Prowlarr's legal indexers. Nothing seeds; the library file is the only copy.
 - **Deleting** in Jellyfin (or the watchlist) frees the space straight away and isn't undone by a re-download ([step 9](#9-deleting-a-film)).
 - **Watching it all:** the watchlist's **Status** tab shows every indexer, and whether Radarr and Sonarr can reach qBittorrent and import, with push alerts for anything broken.
 - **Syncthing is paused, not removed:** the Pi's container is stopped (`/opt/syncthing` kept), and the laptop's `jellyfin-media` folder is paused. `C:\Jellyfin Media` on the laptop is no longer copied to the Pi, so steps 2–4 of the story below are history for now. A new way to push films from the laptop is still to be built ([roadmap](roadmap.md)). Bringing Syncthing back would mean pointing it at `/srv/data/library`, where Radarr's films would show as *locally changed* on a receive-only folder, so it needs rethinking first.
@@ -238,7 +238,7 @@ If step 5 is skipped, the Pi doesn't know it has the files and downloads them al
 | Task | How |
 | --- | --- |
 | Add a film | Say it in the watchlist chat; Radarr downloads it if a legal source has it. Or copy it into `/srv/data/library/movies/Title (Year)/Title (Year).ext` on the Pi yourself |
-| Add episodes | Sonarr can't search the Internet Archive by episode: find the item, then push it to Sonarr ([how](#the-arr-pipeline-public-domain-titles)). Or copy it into `/srv/data/library/shows/Show/Season NN/Show SxxEyy.ext` on the Pi |
+| Add episodes | Ask the watchlist chat to download a whole series, a season or one episode; Sonarr searches the configured legal indexers. Or copy it into `/srv/data/library/shows/Show/Season NN/Show SxxEyy.ext` on the Pi |
 | Remove a film or episode | Delete it in Jellyfin (or the watchlist's **Delete file**). The space is freed straight away and it isn't downloaded again; to have it back, ask for it in the chat |
 | Is the download pipeline OK? | The watchlist's **Status** tab: every indexer, and whether Radarr and Sonarr can reach qBittorrent and import. **Test now** lifts a paused indexer. Alerts come for anything broken for half an hour |
 | A download is stuck at ~99% | `python3 /opt/arr/unstick.py --apply` on the Pi (or let its cron line do it) |
@@ -293,8 +293,8 @@ flowchart LR
     T -- "hard link + rename" --> L --> JF
 ```
 
-1. **You add a title:** say it in the watchlist chat ("I want to watch Nosferatu 1922"), which adds every film to Radarr with the *Watchlist* quality profile and starts a search. Or add it in Radarr (films) or Sonarr (TV) by hand.
-2. **Radarr searches** through Prowlarr, which asks the Internet Archive. Every result's name is parsed (title, year, resolution, source) and checked against the profile, the size limits and the blocklist.
+1. **You request a title:** say a film in the watchlist chat to send it to Radarr, or explicitly ask for a whole TV series, season or episode to send it to Sonarr. You can also add it in either app by hand.
+2. **Radarr or Sonarr searches** through Prowlarr, which queries the configured legal indexers. Every result is parsed and checked against the app's profile, size limits and blocklist.
 3. **The best release goes to qBittorrent** with the category `radarr` or `sonarr`.
 4. **When it finishes, qBittorrent stops it** (share limit: ratio 0, then stop; set by setup.py), and **Radarr hard-links the file** into `/srv/data/library/movies/Title (Year)/`, renamed. Radarr then **removes the torrent and its data** (*Remove completed downloads* on the download client), so the library file is the only copy. Nothing seeds.
 5. **Jellyfin** sees it within seconds (live monitoring is on), in `/media/movies`.

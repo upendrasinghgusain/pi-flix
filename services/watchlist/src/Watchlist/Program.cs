@@ -9,6 +9,7 @@ using Watchlist.Data;
 using Watchlist.Pipeline;
 using Watchlist.Push;
 using Watchlist.Radarr;
+using Watchlist.Sonarr;
 using Watchlist.Tmdb;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -49,6 +50,8 @@ builder.Services.AddHostedService<ReleaseChecker>();
 builder.Services.AddHttpClient<TmdbClient>();
 builder.Services.AddHttpClient<RadarrClient>();
 builder.Services.AddTransient<Downloads>();
+builder.Services.AddHttpClient<SonarrClient>();
+builder.Services.AddTransient<TvDownloads>();
 // Testing an indexer can take Prowlarr a minute or two when the Internet Archive is slow.
 builder.Services.AddHttpClient<PipelineMonitor>(c => c.Timeout = TimeSpan.FromMinutes(3));
 builder.Services.AddSingleton<PipelineState>();
