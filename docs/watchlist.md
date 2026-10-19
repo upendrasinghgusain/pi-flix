@@ -293,7 +293,7 @@ Settings live in `/opt/watchlist/data/settings.json` (example: [pi/watchlist/set
 
 | | |
 | --- | --- |
-| Code | `services/watchlist` in this repo. C#, .NET 10 (latest LTS, as in `tools/media-tidy/global.json`), ASP.NET Core serving both the API and the page. |
+| Code | `services/watchlist` in this repo. C#, .NET 10 (latest LTS, pinned in `services/watchlist/global.json`), ASP.NET Core serving both the API and the page. |
 | Tests | Unit tests for the alert logic (old check vs new → which alerts) and for the agent's tool handling, using recorded TMDb and OpenAI responses. |
 | Image | Built for arm64, base image pinned to an exact version at least two weeks old |
 | On the Pi | `/opt/watchlist`: `compose.yaml`, `.env`, `data/`. Copy of `compose.yaml` in `pi/watchlist/`. |

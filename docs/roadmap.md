@@ -4,7 +4,7 @@ Roughly in the order worth doing. Each item says why it matters and what is alre
 
 ## 1. Ethernet for the Pi
 
-**Why:** copying from the laptop ran at about 5 MB/s (Syncthing, paused since 2026-10-18), even though both the Pi and the laptop have a strong 5 GHz signal (the Pi at -36 dBm and 540 Mbit/s). The limits are the Pi's small Wi-Fi chip and both machines sharing the air. With the Pi on a cable, expect 25–40 MB/s, at which point storage becomes the limit instead.
+**Why:** copying from the laptop ran at about 5 MB/s, even though both the Pi and the laptop have a strong 5 GHz signal (the Pi at -36 dBm and 540 Mbit/s). The limits are the Pi's small Wi-Fi chip and both machines sharing the air. With the Pi on a cable, expect 25–40 MB/s, at which point storage becomes the limit instead.
 
 **Options, best first:**
 1. A flat Cat6 cable along skirting boards or under the carpet (fine up to 100 m).
@@ -16,7 +16,7 @@ Roughly in the order worth doing. Each item says why it matters and what is alre
 
 ## 2. A fixed address
 
-The TV, the laptop (SSH, and Syncthing when it runs) and the docs all use `192.168.1.40`. Add a **DHCP reservation** for the Pi in the router (for its Ethernet connection too, once it has one), so the address never changes.
+The TV, the laptop (SSH) and the docs all use `192.168.1.40`. Add a **DHCP reservation** for the Pi in the router (for its Ethernet connection too, once it has one), so the address never changes.
 
 ## 3. The 1 TB drive as `/srv/data`
 
@@ -51,7 +51,7 @@ The library (`library/`) and the downloads (`torrents/`) must stay on the same d
 
 **Why:** risky-business's prod backups, Jellyfin's settings, the watchlist's database (`/opt/watchlist/data`), the *arr settings (`/opt/arr`) and, later, photos and documents all exist only on the Pi. Follow the 3-2-1 rule: three copies, on two kinds of storage, one away from the house.
 
-**Options:** a second USB drive plus a cloud copy (e.g. Backblaze B2 or a similar storage bucket, encrypted with restic). Films don't need backing up: the laptop holds the master copies of its films, and Radarr's downloads can be fetched again.
+**Options:** a second USB drive plus a cloud copy (e.g. Backblaze B2 or a similar storage bucket, encrypted with restic). Radarr's and Sonarr's downloads don't need backing up (they can be fetched again); films you copied in yourself exist only on the Pi.
 
 ## 6. Remote access with Tailscale
 
@@ -70,13 +70,7 @@ Jellyfin's `EnableRemoteAccess` setting would need switching back on for Tailsca
 
 These hold irreplaceable data, so do items 3–5 first. Reach them with Tailscale. Keep Cloudflare subdomains for small things shared by link.
 
-## 8. Getting laptop films to the Pi again
-
-**Why:** Syncthing is paused (2026-10-18), so films MediaTidy files into `C:\Jellyfin Media` on the laptop stay there. Syncthing can't simply restart: pointed at `/srv/data/library` as receive-only, Radarr's films would show as *locally changed*, and *Revert* would delete them.
-
-**Options:** MediaTidy copying each finished film to the Pi over SSH (`scp` into `/srv/data/library`), or Syncthing on a separate subfolder that only the laptop writes to. Ethernet (item 1) makes either faster.
-
-## 9. Watchlist: what's left
+## 8. Watchlist: what's left
 
 Done: the chat app, release alerts, downloading through Radarr, explicit series/season/episode requests through Sonarr, and the Status tab ([watchlist.md](watchlist.md)). Still to do:
 - **"In your library" from Jellyfin**, so TV and films you copied in yourself count too (today only Radarr's films do); a Jellyfin API key goes in its `.env`.
@@ -94,4 +88,3 @@ Done: the chat app, release alerts, downloading through Radarr, explicit series/
 - Create a non-admin Jellyfin user for the TV (with *Allow media deletion* if you want to delete from the TV).
 - Check the router: UPnP off, IPv6 firewall on.
 - Consider a guest Wi-Fi for visitors and smart gadgets.
-- After `winget upgrade Syncthing.Syncthing`, point the *Syncthing* scheduled task at the new versioned folder.
